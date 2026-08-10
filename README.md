@@ -27,7 +27,7 @@ enthaelt die eigentliche Relais- und Netzwerk-Firmware und implementiert:
 - Persistenz der Einstellungen 
 - Authentifizierung und Benutzerverwaltung
 - SSE: Automtisches Update der Webclients
-- Versionsanzeige: Im Web-Footer werden beide Firmware-Versionen als `Firmware pico: xx.xxxxx  esp32: yy.yyyyy` angezeigt. Die `xxxxx`/`yyyyy` ergeben sich automatisch aus dem Git-Commit-Count beim Bauen, die Hauptversion `xx`/`yy` wird manuell gesetzt (Pico: `FW_MAJOR` in `pico/switch_server/CMakeLists.txt`, ESP32: `ESP_FW_MAJOR` in `esp32/version.py`). Das ESP32 meldet seine Version per `VER:<version>` über UART an den Pico; ohne verbundenes Display steht dort `esp32: -`.
+- Versionsanzeige: Im Web-Footer werden beide Firmware-Versionen als `Firmware pico: xx.xxxxx.g<hash>  esp32: yy.yyyyy.g<hash>` angezeigt. Format: manuelle Hauptversion `xx`/`yy`, automatischer Git-Commit-Count `xxxxx`/`yyyyy` und der kurze Commit-Hash `g<hash>` (bei uncommittetem Stand zusaetzlich `-dirty`). Der Hash macht den Stand eindeutig rueckverfolgbar. Hauptversion: Pico `FW_MAJOR` in `pico/switch_server/CMakeLists.txt`, ESP32 `ESP_FW_MAJOR` in `esp32/version.py`. Das ESP32 meldet seine Version per `VER:<version>` über UART an den Pico; ohne verbundenes Display steht dort `esp32: -`.
 - Optionales ESP Touch Display über serielle Schnittstelle (esp_link Protokoll) schaltet die realen GPIO-Relais und meldet Titel, Namen, Modus und Zustände live an das Display zurück.
 
 Typischer Zusammenspiel-Flow im Ueberblick:
