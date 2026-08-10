@@ -1,0 +1,36 @@
+{
+  "configurations": [
+    {
+      "name": "Pico W6300",
+      "compilerPath": "/usr/bin/arm-none-eabi-g++",
+      "compileCommands": "${workspaceFolder}/pico/cpp/wiznet/build/compile_commands.json",
+      "includePath": [
+        "${workspaceFolder}/pico/cpp/wiznet/src",
+        "${workspaceFolder}/../../WIZnet-PICO-C/libraries/pico-sdk/src/common/pico_base_headers/include",
+        "${workspaceFolder}/../../WIZnet-PICO-C/libraries/pico-sdk/src/common/pico_stdlib_headers/include",
+        "${workspaceFolder}/../../WIZnet-PICO-C/libraries/pico-sdk/src/rp2_common/hardware_base/include",
+        "${workspaceFolder}/../../WIZnet-PICO-C/libraries/pico-sdk/src/rp2_common/hardware_flash/include",
+        "${workspaceFolder}/../../WIZnet-PICO-C/libraries/pico-sdk/src/rp2_common/hardware_gpio/include",
+        "${workspaceFolder}/../../WIZnet-PICO-C/libraries/pico-sdk/src/rp2_common/hardware_sync/include",
+        "${workspaceFolder}/../../WIZnet-PICO-C/libraries/pico-sdk/src/rp2_common/pico_platform_common/include",
+        "${workspaceFolder}/../../WIZnet-PICO-C/libraries/pico-sdk/src/rp2350/hardware_regs/include",
+        "${workspaceFolder}/../../WIZnet-PICO-C/libraries/pico-sdk/src/rp2350/hardware_structs/include",
+        "${workspaceFolder}/../../WIZnet-PICO-C/libraries/pico-sdk/src/rp2350/pico_platform/include",
+        "${workspaceFolder}/../../WIZnet-PICO-C/libraries/pico-sdk/src/boards/include",
+        "${workspaceFolder}/../../WIZnet-PICO-C/libraries/ioLibrary_Driver/Ethernet",
+        "${workspaceFolder}/../../WIZnet-PICO-C/libraries/ioLibrary_Driver/Ethernet/W6300",
+        "${workspaceFolder}/../../WIZnet-PICO-C/port",
+        "${workspaceFolder}/../../WIZnet-PICO-C/port/ioLibrary_Driver/inc"
+      ],
+      "defines": [
+        "_WIZCHIP_=W6300",
+        "DEVICE_BOARD_NAME=W6300_EVB_PICO2",
+        "_WIZCHIP_QSPI_MODE_=QSPI_QUAD_MODE",
+        "PICO_RP2350=1",
+        "PICO_BOARD=\"pico2\""
+      ],
+      "intelliSenseMode": "linux-gcc-arm"
+    }
+  ],
+  "version": 4
+}

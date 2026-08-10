@@ -1,0 +1,67 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# MicroPython / local device files
+*.mpy
+
+# C / C++ / CMake / Pico SDK builds
+build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+*.elf
+*.elf.map
+*.bin
+*.hex
+*.dis
+*.map
+*.lst
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+
+
+# Project build directories
+pico/switch_server/build/
+pico/.pio/
+.pio/
+
+# Generated local firmware artifacts
+pico/**/*.uf2
+
+# PlatformIO
+.pioenvs/
+.piolibdeps/
+.pioinit
+
+# VS Code local state
+.vscode/.browse.c_cpp.db*
+.vscode/ipch/
+.vscode/*.log
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*~
+*.swp
+*.swo
+
+# Local notes / scratch files
+info.txt
+
+# Externer WIZnet-PICO-C-Checkout (nicht versionieren, egal an welcher Stelle)
+WIZnet-PICO-C/
