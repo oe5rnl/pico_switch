@@ -259,4 +259,13 @@ Beide Tests validieren jeweils die **eigene** UART-Hardware eines Boards.
   Idle-High liegt (siehe Startablauf), sonst desynchronisiert der ESP-UART-Empfänger.
 - Standard-Login: Benutzer `admin`, Passwort `sw234`.
 - PlatformIO wird per `pipx` bereitgestellt; ggf. `export PATH="$HOME/.local/bin:$PATH"`.
+- **WIZnet-Port bleibt unveraendert (eigene Init):** `wizchip_initialize()` im
+  WIZnet-Port wartet endlos auf den PHY-Link und wuerde ohne LAN-Kabel den Boot
+  (inkl. ESP-Link) blockieren. Die Firmware ruft es daher nicht auf, sondern nutzt
+  `wizchip_init_no_phy_wait()` in `relay_server.cpp` (gleicher W6300/QSPI-PIO-Init
+  ueber das globale `spi_handle` + `CW_INIT_WIZCHIP`, aber ohne PHY-Warten). Der
+  zeitbegrenzte Link-Check erfolgt danach in `wait_for_phy_link()`. Der geklonte
+  WIZnet-PICO-C-Code (inkl. `socket.c`) bleibt komplett unveraendert — kein Patch,
+  kein Zusatzskript; Blockierungen sind in `relay_server.cpp` per Timeout/`close()`
+  umgangen.
 

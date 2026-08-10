@@ -191,6 +191,15 @@ cd WIZnet-PICO-C && git submodule update --init --recursive
 
 Details und alternative Checkout-Pfade: `pico/README.md`.
 
+> **WIZnet-Port bleibt unveraendert:** Der WIZnet-Beispiel-Port wartet in
+> `wizchip_initialize()` von Haus aus endlos auf einen PHY-Link und wuerde damit
+> ohne gestecktes LAN-Kabel den kompletten Boot (inkl. ESP-Display-Link)
+> blockieren. Die Firmware ruft diese Funktion daher nicht auf, sondern nutzt eine
+> eigene, nicht-blockierende Init (`wizchip_init_no_phy_wait()` in
+> `relay_server.cpp`); der zeitbegrenzte Link-Check erfolgt anschliessend in
+> `wait_for_phy_link()`. Der geklonte WIZnet-PICO-C-Code bleibt dadurch komplett
+> unveraendert — kein Patch am Fremdcode, kein Zusatzskript.
+
 ### ESP32-CYD (PlatformIO)
 
 PlatformIO Core (`pio`) wird zum Bauen und Flashen benoetigt. Empfohlen ueber

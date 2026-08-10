@@ -20,8 +20,13 @@ extern "C" {
 #include "socket.h"
 #include "wizchip_conf.h"
 #include "wizchip_spi.h"
+#include "wizchip_qspi_pio.h"
 
 extern char __flash_binary_end;
+
+// Vom WIZnet-Port (wizchip_spi.c) gesetztes QSPI-Handle; von unserer eigenen,
+// nicht-blockierenden WIZchip-Init genutzt (wizchip_init_no_phy_wait()).
+extern wiznet_spi_handle_t spi_handle;
 }
 
 namespace cfg {
@@ -39,6 +44,7 @@ constexpr uint8_t MAX_SSE_SOCKETS = HTTP_SOCKET_COUNT > 2 ? HTTP_SOCKET_COUNT - 
 constexpr uint8_t DHCP_SELECT_PIN = 15;
 constexpr uint8_t DHCP_SOCKET = 0;
 constexpr uint8_t DHCP_RETRY_COUNT = 5;
+constexpr uint32_t PHY_LINK_WAIT_MS = 4000;  // max. Wartezeit auf LAN-Link vor DHCP
 constexpr size_t ETHERNET_BUF_SIZE = 2048;
 constexpr uint32_t SESSION_LIFETIME_MS = 30UL * 60UL * 1000UL;
 constexpr uint32_t SSE_KEEPALIVE_MS = 1UL * 1000UL;
@@ -1068,12 +1074,23 @@ static bool service_relay_feedback() {
   return changed;
 }
 
+// Prueft, ob die aktuellen Relaiszustaende der Szenenvorgabe entsprechen
+// ("unveraendert"/Aktion 2 wird ignoriert, da nicht Teil der Szenenkonfig).
+static bool scene_state_matches(uint8_t idx) {
+  for (uint8_t r = 0; r < cfg::RELAY_COUNT; ++r) {
+    const uint8_t a = scenes[idx].action[r];
+    if (a == 2) continue;
+    if (relay_states[r] != (a == 1)) return false;
+  }
+  return true;
+}
+
 static void set_relay(uint8_t idx, bool on) {
   relay_states[idx] = on;
   apply_relay(idx);
   start_feedback_check(idx, -1);
   if (scene_mode && active_scene >= 0) {
-    scene_dirty = true;  // Direkte Schaltung im Szenen-Modus
+    scene_dirty = !scene_state_matches(active_scene);  // sauber, sobald wieder die Szenenkonfig erreicht ist
   } else {
     active_scene = -1;
   }
@@ -1221,6 +1238,14 @@ static bool send_all(uint8_t sn, const std::string &data) {
   size_t sent_total = 0;
   while (sent_total < data.size()) {
     uint16_t chunk = static_cast<uint16_t>(std::min<size_t>(data.size() - sent_total, 1400));
+    // Zeitlich begrenzt auf freien TX-Puffer warten. Ohne diese Schranke wuerde
+    // das WIZnet-send() bei Link-Verlust (TX-Puffer laeuft voll) sekundenlang
+    // blockieren und die Hauptschleife (ESP-Link, Relais) aushungern.
+    uint32_t start = millis32();
+    while (getSn_TX_FSR(sn) < chunk) {
+      if (getSn_SR(sn) != SOCK_ESTABLISHED) return false;
+      if (millis32() - start > 150) return false;
+    }
     int32_t sent = send(sn, reinterpret_cast<uint8_t *>(const_cast<char *>(data.data() + sent_total)), chunk);
     if (sent <= 0) return false;
     sent_total += static_cast<size_t>(sent);
@@ -1236,14 +1261,23 @@ static void close_socket(uint8_t sn) {
   close(sn);
 }
 
+// Sofortiges CLOSE ohne FIN-Handshake. disconnect() wuerde bei unerreichbarem
+// Peer bis zum TCP-Timeout (Sekunden) blockieren und die Hauptschleife
+// aushungern; das Hardware-CLOSE setzt den Socket direkt auf SOCK_CLOSED.
+static void force_close_socket(uint8_t sn) {
+  sse_socket[sn] = false;
+  sse_show_users[sn] = false;
+  close(sn);
+}
+
 static bool send_sse(uint8_t sn, const std::string &data) {
   if (!sse_socket[sn]) return false;
   if (getSn_SR(sn) != SOCK_ESTABLISHED) {
-    close_socket(sn);
+    force_close_socket(sn);
     return false;
   }
   if (!send_all(sn, data)) {
-    close_socket(sn);
+    force_close_socket(sn);
     return false;
   }
   return true;
@@ -1254,7 +1288,7 @@ static void prune_sse_sockets() {
     if (!sse_socket[sn]) continue;
     uint8_t status = getSn_SR(sn);
     if (status == SOCK_CLOSE_WAIT || status == SOCK_CLOSED || status == SOCK_FIN_WAIT || status == SOCK_TIME_WAIT || status == SOCK_LAST_ACK) {
-      close_socket(sn);
+      force_close_socket(sn);
     }
   }
 }
@@ -1509,6 +1543,7 @@ static void configure_feedback_inputs() {
 }
 
 static void broadcast_state() {
+  if (!lan_link_up) return;  // ohne LAN keine SSE-Empfaenger, blockierendes send() vermeiden
   prune_sse_sockets();
   for (uint8_t sn = 0; sn < cfg::HTTP_SOCKET_COUNT; ++sn) {
     if (sse_socket[sn]) send_sse(sn, "data: " + state_json(sse_show_users[sn]) + "\r\n\r\n");
@@ -1516,6 +1551,7 @@ static void broadcast_state() {
 }
 
 static void keepalive_sse() {
+  if (!lan_link_up) return;
   if (millis32() - last_keepalive < cfg::SSE_KEEPALIVE_MS) return;
   last_keepalive = millis32();
   prune_sse_sockets();
@@ -1867,7 +1903,7 @@ static void service_socket(uint8_t sn) {
       break;
     case SOCK_ESTABLISHED: {
       if (sse_socket[sn]) {
-        if (getSn_RX_RSR(sn) > 0) close_socket(sn);
+        if (getSn_RX_RSR(sn) > 0) force_close_socket(sn);
         break;
       }
       uint16_t available = getSn_RX_RSR(sn);
@@ -1886,7 +1922,7 @@ static void service_socket(uint8_t sn) {
       break;
     }
     case SOCK_CLOSE_WAIT:
-      close_socket(sn);
+      force_close_socket(sn);
       break;
     default:
       break;
@@ -1905,6 +1941,23 @@ static void init_relays() {
    
 namespace esp_link {
 static void service();  // Vorwaerts-Deklaration: waehrend DHCP-Wartephase bedienen
+}
+
+// Zuverlaessige PHY-Link-Erkennung (MII/MDIO), identisch zur port-internen Pruefung.
+static bool phy_link_up() {
+  return wizphy_getphylink() == PHY_LINK_ON;
+}
+
+// Wartet zeitbegrenzt auf den PHY-Link und bedient dabei das ESP-Display weiter.
+static bool wait_for_phy_link(uint32_t timeout_ms) {
+  uint32_t start = millis32();
+  while (!phy_link_up()) {
+    if (millis32() - start >= timeout_ms) return false;
+    esp_link::service();
+    sleep_ms(10);
+  }
+  lan_link_up = true;
+  return true;
 }
 
 static void dhcp_assign() {
@@ -2043,19 +2096,41 @@ static void init_users() {
   }
 }
 
+// Eigene WIZchip-Init (nur W6300/QSPI-PIO), entspricht wizchip_initialize() aus
+// dem WIZnet-Port, laesst aber dessen blockierendes Warten auf den PHY-Link weg
+// (haengt sonst ohne LAN-Kabel den Boot). Der zeitbegrenzte Link-Check erfolgt
+// danach in wait_for_phy_link(); der Fremdcode bleibt dadurch unveraendert.
+static void wizchip_init_no_phy_wait() {
+  (*spi_handle)->frame_end();
+  reg_wizchip_qspi_cbfunc((*spi_handle)->read_byte, (*spi_handle)->write_byte);
+  reg_wizchip_cs_cbfunc((*spi_handle)->frame_start, (*spi_handle)->frame_end);
+  uint8_t memsize[2][8] = {{4, 4, 4, 4, 4, 4, 4, 4}, {4, 4, 4, 4, 4, 4, 4, 4}};
+  if (ctlwizchip(CW_INIT_WIZCHIP, (void *)memsize) == -1) {
+    printf(" W6x00 initialized fail\n");
+  }
+}
+
 static void init_network() {
   printf("W6300 init mit WIZnet-PICO-C PIO/QSPI Quad Mode ...\n");
   wizchip_spi_initialize();
   wizchip_cris_initialize();
   wizchip_reset();
-  wizchip_initialize();
+  wizchip_init_no_phy_wait();
   wizchip_check();
+  printf("PHY-Link: %s\n", phy_link_up() ? "UP" : "DOWN");
   if (g_use_dhcp) {
-    if (acquire_dhcp_address()) {
-      printf("DHCP erfolgreich: HTTP-Server verwendet %u.%u.%u.%u\n", g_net_info.ip[0], g_net_info.ip[1], g_net_info.ip[2], g_net_info.ip[3]);
-      return;
+    // Ohne LAN-Link wuerde der erste DHCP-DISCOVER in sendto() endlos auf
+    // Sn_IR_SENDOK warten und den Boot (inkl. ESP-Link) blockieren. Daher zuerst
+    // zeitbegrenzt auf den PHY-Link warten und dabei das ESP-Display bedienen.
+    if (wait_for_phy_link(cfg::PHY_LINK_WAIT_MS)) {
+      if (acquire_dhcp_address()) {
+        printf("DHCP erfolgreich: HTTP-Server verwendet %u.%u.%u.%u\n", g_net_info.ip[0], g_net_info.ip[1], g_net_info.ip[2], g_net_info.ip[3]);
+        return;
+      }
+      printf("DHCP fehlgeschlagen, Fallback auf statische IP.\n");
+    } else {
+      printf("Kein LAN-Link erkannt, DHCP uebersprungen, Fallback auf statische IP.\n");
     }
-    printf("DHCP fehlgeschlagen, Fallback auf statische IP.\n");
   }
   apply_static_network_to_runtime();
   network_initialize(g_net_info);
@@ -2209,18 +2284,47 @@ static void service() {
   }
 }
 
-// Prueft periodisch den PHY-Link und aktualisiert bei Aenderung die Display-Statuszeile.
-static void service_link_status() {
+// Sendet die aktuelle IP-/Link-Statuszeile ans ESP-Display.
+static void notify_ip_status() {
+  uart_puts(UART, ("IP:" + ip_status_text() + "\n").c_str());
+}
+}  // namespace esp_link
+
+static void open_http_sockets() {
+  for (uint8_t sn = 0; sn < cfg::HTTP_SOCKET_COUNT; ++sn) {
+    force_close_socket(sn);  // nicht-blockierend: kein Warten auf FIN/TCP-Timeout
+    socket(sn, Sn_MR_TCP, cfg::HTTP_PORT, 0x00);
+    listen(sn);
+  }
+}
+
+// Nach LAN-Wiederkehr Netzwerk und HTTP-Sockets neu aufsetzen.
+static void reconnect_network() {
+  printf("LAN-Link wieder da: Netzwerk neu initialisieren ...\n");
+  if (g_use_dhcp) acquire_dhcp_address();  // neue Lease/IP holen, bedient dabei das ESP-Display
+  else network_initialize(g_net_info);
+  open_http_sockets();
+}
+
+// Prueft periodisch den PHY-Link, meldet Aenderungen ans Display und reconnectet.
+static void service_network_link() {
   uint32_t now = millis32();
   if (now - last_link_check < 1000) return;
   last_link_check = now;
-  bool up = (wizphy_getphylink() == PHY_LINK_ON);
-  if (up != lan_link_up) {
-    lan_link_up = up;
-    uart_puts(UART, ("IP:" + ip_status_text() + "\n").c_str());
+  bool up = phy_link_up();
+  if (up == lan_link_up) return;
+  lan_link_up = up;
+  if (up) {
+    if (g_use_dhcp) dhcp_assigned = false;  // bis zur neuen Lease "connecting LAN" anzeigen
+    esp_link::notify_ip_status();           // Zwischenstand ans Display
+    reconnect_network();                    // neue DHCP-Lease/Sockets holen
+    esp_link::notify_ip_status();           // finale IP nach Reconnect ans Display pushen
+  } else {
+    esp_link::notify_ip_status();           // "LAN connection lost"
+    for (uint8_t sn = 0; sn < cfg::HTTP_SOCKET_COUNT; ++sn) force_close_socket(sn);  // haengende Verbindungen sofort verwerfen (ohne Blockieren)
   }
 }
-}  // namespace esp_link
+
 
 int main() {
   esp_link::init();  // UART sofort auf Idle-High treiben, bevor der ESP booten kann
@@ -2247,16 +2351,13 @@ int main() {
   }
   init_network();
   esp_link_display_dirty = true;  // ESP nach DHCP mit korrekter IP versorgen
-  for (uint8_t sn = 0; sn < cfg::HTTP_SOCKET_COUNT; ++sn) {
-    socket(sn, Sn_MR_TCP, cfg::HTTP_PORT, 0x00);
-    listen(sn);
-  }
+  open_http_sockets();
   printf("HTTP-Server: http://%u.%u.%u.%u/\n", g_net_info.ip[0], g_net_info.ip[1], g_net_info.ip[2], g_net_info.ip[3]);
   while (true) {
     for (uint8_t sn = 0; sn < cfg::HTTP_SOCKET_COUNT; ++sn) service_socket(sn);
     keepalive_sse();
     esp_link::service();
-    esp_link::service_link_status();
+    service_network_link();
     if (service_relay_feedback()) {
       esp_link_state_dirty = true;
       broadcast_state();

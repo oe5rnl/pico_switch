@@ -93,6 +93,28 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DWIZNET_PICO_C_PATH=$HOME/src/WI
 cmake --build build -j$(nproc)
 ```
 
+### WIZnet-Port bleibt unveraendert (eigene Init)
+
+Der WIZnet-Beispiel-Port wartet in `wizchip_initialize()` (Datei
+`port/ioLibrary_Driver/src/wizchip_spi.c`) mit
+`do { ... } while (temp == PHY_LINK_OFF);` endlos auf einen PHY-Link. Ohne
+gestecktes LAN-Kabel bliebe der Boot dadurch komplett haengen (auch der
+ESP-Display-Link).
+
+Die Firmware ruft diese Funktion deshalb **nicht** auf. Stattdessen bildet
+`wizchip_init_no_phy_wait()` in `relay_server.cpp` denselben W6300/QSPI-PIO-Init
+nach (Callbacks registrieren + `CW_INIT_WIZCHIP`), laesst aber das PHY-Warten
+weg. Der zeitbegrenzte Link-Check erfolgt danach in `wait_for_phy_link()`.
+
+Dadurch bleibt der geklonte WIZnet-PICO-C-Code **komplett unveraendert** — kein
+Patch am Fremdcode, kein Zusatzskript, nichts, was bei einem frischen Checkout
+nachgezogen werden muss. Moeglich ist das, weil das QSPI-Handle `spi_handle` ein
+globales Symbol des Ports ist und `reg_wizchip_qspi_cbfunc`,
+`reg_wizchip_cs_cbfunc` und `ctlwizchip` oeffentliche ioLibrary-Funktionen sind.
+
+`socket.c` bleibt ebenfalls unveraendert; blockierende `send()`/`disconnect()`-
+Aufrufe sind in `relay_server.cpp` per Timeout bzw. sofortigem `close()` umgangen.
+
 ### Manuell
 
 ```bash
@@ -398,3 +420,4 @@ Persistierte Felder:
 - **`Verbunden` springt staendig auf `Getrennt`**: Mehr als 6 SSE-Tabs offen oder Netzwerk verliert kurzzeitig Pakete. Tabs schliessen oder Pico neustarten.
 - **Build bricht mit "ueberschreitet den ersten Persistenz-Slot" ab**: Firmware ist gewachsen. Ersten Slot in `persist_flash_offsets()` durch einen weiter hinten liegenden ersetzen.
 - **Server schreibt Konfig nicht**: Im seriellen Log nach `Persistenz-Schreibschutz aktiv` suchen. Tritt auf, wenn fremde/kaputte Persistenzdaten erkannt wurden. Geraet einmalig mit definierter Konfiguration neu flashen oder die Slots manuell loeschen.
+- **Boot haengt ohne LAN-Kabel / ESP-Display bleibt auf "wait for init"**: Tritt mit dieser Firmware nicht auf, da sie eine eigene, nicht-blockierende WIZchip-Init (`wizchip_init_no_phy_wait()`) statt des blockierenden `wizchip_initialize()` nutzt. Sollte es dennoch haengen, wurde vermutlich versehentlich der WIZnet-Beispiel-Init aufgerufen — sicherstellen, dass in `init_network()` `wizchip_init_no_phy_wait()` verwendet wird. Siehe Abschnitt „WIZnet-Port bleibt unveraendert (eigene Init)".
