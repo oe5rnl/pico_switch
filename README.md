@@ -68,11 +68,10 @@ Wichtige Hinweise:
 
 ### Kurzanleitung für PICO und ESP32
 
-Der PICO und das ESP32 cyd Display müssen getrennt geflashed werden.  
-Zum flashen des  ESP32 muss die serielle Verbindung zwischen dem PICO (GP0 und GP1) und dem ESP32 getrennt werden.  
+Der PICO und das ESP32 cyd Display müssen getrennt geflashed werden.    
+Zum flasken des PICO muss dieser vorher bei gedrückter Taste (erste beim USB) eingeschaltet werden.  
+Zum flashen des ESP32 muss die serielle Verbindung zwischen dem PICO (GP0 und GP1) und dem ESP32 getrennt werden.    
 Beim ersten Aufruf der upload scripts werden einige Dateien aus dem Netz geladen.
-
-Serielle Verbindung trennen: PICO (GP0 und GP1).  
 
 ```bash
 cd esp32
