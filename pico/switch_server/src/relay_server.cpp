@@ -15,6 +15,8 @@
 #include "hardware/sync.h"
 #include "hardware/uart.h"
 
+#include "fw_version.h"
+
 extern "C" {
 #include "dhcp.h"
 #include "socket.h"
@@ -2062,6 +2064,7 @@ static std::string page_header_html(const Session *session, bool show_conn) {
   if (show_user_list) {
     html += "<script>window.__currentUser=\"" + json_escape(current_session_username(session)) + "\";function __renderHeaderUsers(users){const el=document.getElementById('other-users');if(!el)return;if(users===null){el.style.display='none';return}el.style.display='';const cur=window.__currentUser||'-';const list=(users||[]).filter(u=>!cur||cur==='-'||u.username!==cur);if(!list.length){el.textContent='Andere Benutzer: -';el.title='Keine anderen aktiven Anmeldungen';return}const text=list.map(u=>u.username+' ('+u.remaining+' min)').join(', ');el.textContent='Andere Benutzer: '+text;el.title=text}function __pollHeaderUsers(){fetch('/active_users',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(d=>{if(d)__renderHeaderUsers(d.active_users)}).catch(()=>{})}setInterval(__pollHeaderUsers,5000);__pollHeaderUsers();</script>";
   }
+  html += "<div style=\"position:fixed;bottom:4px;left:8px;color:#484f58;font-size:.7rem;z-index:100\">Designed and built by OE5RNL, OE5NVL and Claude &nbsp;v" FW_VERSION "</div>";
   return html;
 }
 

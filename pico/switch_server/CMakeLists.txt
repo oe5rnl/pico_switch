@@ -70,6 +70,22 @@ pico_enable_stdio_usb(switch_w6300_relay 1)
 pico_enable_stdio_uart(switch_w6300_relay 0)
 pico_add_extra_outputs(switch_w6300_relay)
 
+# ---- Firmware-Version aus Git-Commit-Count (nur Web-Anzeige) --------------
+# Erzeugt bei jedem Build generated/fw_version.h mit FW_VERSION="xx.xxxxx".
+set(FW_MAJOR "05" CACHE STRING "Manuelle Hauptversion (xx)")
+set(FW_VERSION_HEADER "${CMAKE_BINARY_DIR}/generated/fw_version.h")
+add_custom_target(gen_fw_version
+    BYPRODUCTS ${FW_VERSION_HEADER}
+    COMMAND ${CMAKE_COMMAND}
+        -DHEADER_FILE=${FW_VERSION_HEADER}
+        -DFW_MAJOR=${FW_MAJOR}
+        -DSRC_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gen_fw_version.cmake
+    VERBATIM
+)
+add_dependencies(switch_w6300_relay gen_fw_version)
+target_include_directories(switch_w6300_relay PRIVATE ${CMAKE_BINARY_DIR}/generated)
+
 # ---- Separates Test-Target: UART0-Loopback ueber Webseite ----------------
 # Eigenstaendiges Programm, laesst die Originalfirmware unberuehrt.
 # Bauen:   make -C build uart_loopback_test   (oder gesamter Build)
