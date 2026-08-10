@@ -21,6 +21,10 @@ short = git(["rev-parse", "--short=7", "HEAD"], "0000000") or "0000000"
 # Nur getrackte Aenderungen zaehlen als "dirty" (wie git describe --dirty).
 dirty = "-dirty" if git(["status", "--porcelain", "--untracked-files=no"]) else ""
 
-version = "%s.%s.g%s%s" % (ESP_FW_MAJOR, count.zfill(5), short, dirty)
+# Anzahl noch nicht gepushter Commits (nur mit konfiguriertem Upstream).
+ahead = git(["rev-list", "--count", "@{u}..HEAD"])
+ahead = "+%s" % ahead if ahead.isdigit() and ahead != "0" else ""
+
+version = "%s.%s.g%s%s%s" % (ESP_FW_MAJOR, count.zfill(5), short, dirty, ahead)
 env.Append(CPPDEFINES=[("ESP_FW_VERSION", env.StringifyMacro(version))])
 

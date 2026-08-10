@@ -1,8 +1,9 @@
-# Erzeugt fw_version.h mit "FW_MAJOR.<count>.g<hash>[-dirty]" (count 5-stellig).
+# Erzeugt fw_version.h mit "FW_MAJOR.<count>.g<hash>[-dirty][+N]" (count 5-stellig).
 find_package(Git QUIET)
 set(COUNT 0)
 set(HASH "0000000")
 set(DIRTY "")
+set(AHEAD "")
 if(GIT_FOUND)
   execute_process(
     COMMAND ${GIT_EXECUTABLE} rev-list --count HEAD
@@ -26,6 +27,16 @@ if(GIT_FOUND)
   if(NOT GIT_STATUS STREQUAL "")
     set(DIRTY "-dirty")
   endif()
+  # Anzahl noch nicht gepushter Commits (nur mit konfiguriertem Upstream).
+  execute_process(
+    COMMAND ${GIT_EXECUTABLE} rev-list --count "@{u}..HEAD"
+    WORKING_DIRECTORY ${SRC_DIR}
+    OUTPUT_VARIABLE AHEAD_COUNT
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+  if(AHEAD_COUNT MATCHES "^[0-9]+$" AND NOT AHEAD_COUNT STREQUAL "0")
+    set(AHEAD "+${AHEAD_COUNT}")
+  endif()
 endif()
 if(NOT COUNT MATCHES "^[0-9]+$")
   set(COUNT 0)
@@ -41,7 +52,7 @@ while(LEN LESS 5)
   string(LENGTH "${PADDED}" LEN)
 endwhile()
 
-set(CONTENT "#pragma once\n#define FW_VERSION \"${FW_MAJOR}.${PADDED}.g${HASH}${DIRTY}\"\n")
+set(CONTENT "#pragma once\n#define FW_VERSION \"${FW_MAJOR}.${PADDED}.g${HASH}${DIRTY}${AHEAD}\"\n")
 if(EXISTS "${HEADER_FILE}")
   file(READ "${HEADER_FILE}" OLD)
 else()
