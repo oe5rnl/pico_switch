@@ -119,7 +119,24 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
   sendet bei `*_dirty`-Flags Zustands-/Display-Updates; `flush_rx()` verwirft
   aufgelaufene Boot-Daten.
 
-### 2.6 Startablauf (`main()`) — wichtig für Boot-Timing
+### 2.6 Versionsanzeige
+
+Im Web-Footer werden beide Firmware-Versionen angezeigt:
+`Firmware pico: xx.xxxxx.g<hash>  esp32: yy.yyyyy.g<hash>`.
+
+- Format: manuelle Hauptversion `xx`/`yy`, automatischer Git-Commit-Count
+  `xxxxx`/`yyyyy` (5-stellig) und kurzer Commit-Hash `g<hash>`.
+- Marker: `-dirty` bei uncommittetem (getracktem) Stand, `+N` für N lokal noch
+  nicht gepushte Commits (nur mit konfiguriertem Upstream).
+- Hauptversion einstellen: Pico `FW_MAJOR` in
+  `pico/switch_server/CMakeLists.txt`, ESP32 `ESP_FW_MAJOR` in `esp32/version.py`.
+- Erzeugung: Pico generiert bei jedem Build `build/generated/fw_version.h` per
+  `cmake/gen_fw_version.cmake`; ESP32 injiziert `ESP_FW_VERSION` per
+  PlatformIO-Pre-Skript `esp32/version.py`.
+- Das ESP32 meldet seine Version per `VER:<version>` über UART an den Pico;
+  ohne verbundenes Display steht dort `esp32: -`.
+
+### 2.7 Startablauf (`main()`) — wichtig für Boot-Timing
 
 Reihenfolge bewusst so gewählt, damit das Display **unabhängig vom DHCP** früh online geht:
 
@@ -164,7 +181,7 @@ Lokales Touch-Terminal (Board ESP32-2432S028, „CYD"), LVGL 8 + TFT_eSPI + XPT2
 | Befehl | Bedeutung |
 |---|---|
 | `PING` | Heartbeat / Verbindungscheck |
-| `VER:<version>` | ESP32-Firmwareversion (Git-Commit-Count) melden |
+| `VER:<version>` | ESP32-Firmwareversion (`yy.yyyyy.g<hash>[-dirty][+N]`) melden |
 | `GET DISPLAY` | Vollständige Display-Konfiguration anfordern |
 | `GET TITLE` | Nur Titel |
 | `GET NAMES` | Nur Kanalnamen |
