@@ -286,6 +286,7 @@ static std::array<int8_t, cfg::RELAY_COUNT> feedback_source_scene = {-1, -1, -1,
 static std::array<bool, cfg::SCENE_COUNT> scene_feedback_error{};
 static std::string site_title = "OE5XBB-Steuerung";
 static std::string site_subtitle = "Relais-&Uuml;bersicht";
+static std::string esp_fw_version = "-";  // vom ESP-Display per UART gemeldet (VER:)
 static bool public_access = false;
 static bool scene_mode = false;
 static std::array<Scene, cfg::SCENE_COUNT> scenes{};
@@ -2064,7 +2065,7 @@ static std::string page_header_html(const Session *session, bool show_conn) {
   if (show_user_list) {
     html += "<script>window.__currentUser=\"" + json_escape(current_session_username(session)) + "\";function __renderHeaderUsers(users){const el=document.getElementById('other-users');if(!el)return;if(users===null){el.style.display='none';return}el.style.display='';const cur=window.__currentUser||'-';const list=(users||[]).filter(u=>!cur||cur==='-'||u.username!==cur);if(!list.length){el.textContent='Andere Benutzer: -';el.title='Keine anderen aktiven Anmeldungen';return}const text=list.map(u=>u.username+' ('+u.remaining+' min)').join(', ');el.textContent='Andere Benutzer: '+text;el.title=text}function __pollHeaderUsers(){fetch('/active_users',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(d=>{if(d)__renderHeaderUsers(d.active_users)}).catch(()=>{})}setInterval(__pollHeaderUsers,5000);__pollHeaderUsers();</script>";
   }
-  html += "<div style=\"position:fixed;bottom:4px;left:8px;color:#484f58;font-size:.7rem;z-index:100\">Designed and built by OE5RNL, OE5NVL and Claude &nbsp;v" FW_VERSION "</div>";
+  html += "<div style=\"position:fixed;bottom:4px;left:8px;color:#484f58;font-size:.7rem;z-index:100\">Designed and built by OE5RNL, OE5NVL and Claude &nbsp;&nbsp;Firmware pico: " FW_VERSION " &nbsp; esp32: " + html_escape(esp_fw_version) + "</div>";
   return html;
 }
 
@@ -2235,6 +2236,8 @@ static void handle_line(const char *line) {
     send_line("SUBTITLE:", site_subtitle);
   } else if (std::strcmp(line, "PING") == 0) {
     uart_puts(UART, "PONG\n");
+  } else if (std::strncmp(line, "VER:", 4) == 0) {
+    esp_fw_version = line + 4;
   } else if (handle_scene_command(line)) {
     printf("ESP-UART: Szene aktiviert\n");
   } else if (handle_switch_command(line)) {

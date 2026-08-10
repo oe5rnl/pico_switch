@@ -164,6 +164,7 @@ Lokales Touch-Terminal (Board ESP32-2432S028, „CYD"), LVGL 8 + TFT_eSPI + XPT2
 | Befehl | Bedeutung |
 |---|---|
 | `PING` | Heartbeat / Verbindungscheck |
+| `VER:<version>` | ESP32-Firmwareversion (Git-Commit-Count) melden |
 | `GET DISPLAY` | Vollständige Display-Konfiguration anfordern |
 | `GET TITLE` | Nur Titel |
 | `GET NAMES` | Nur Kanalnamen |

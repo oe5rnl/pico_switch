@@ -27,6 +27,7 @@ enthaelt die eigentliche Relais- und Netzwerk-Firmware und implementiert:
 - Persistenz der Einstellungen 
 - Authentifizierung und Benutzerverwaltung
 - SSE: Automtisches Update der Webclients
+- Versionsanzeige: Im Web-Footer werden beide Firmware-Versionen als `Firmware pico: xx.xxxxx  esp32: yy.yyyyy` angezeigt. Die `xxxxx`/`yyyyy` ergeben sich automatisch aus dem Git-Commit-Count beim Bauen, die Hauptversion `xx`/`yy` wird manuell gesetzt (Pico: `FW_MAJOR` in `pico/switch_server/CMakeLists.txt`, ESP32: `ESP_FW_MAJOR` in `esp32/version.py`). Das ESP32 meldet seine Version per `VER:<version>` über UART an den Pico; ohne verbundenes Display steht dort `esp32: -`.
 - Optionales ESP Touch Display über serielle Schnittstelle (esp_link Protokoll) schaltet die realen GPIO-Relais und meldet Titel, Namen, Modus und Zustände live an das Display zurück.
 
 Typischer Zusammenspiel-Flow im Ueberblick:
@@ -61,7 +62,7 @@ Wichtige Hinweise:
 - Beide Boards arbeiten mit 3,3 V Logikpegeln (kein 5-V-UART anschliessen).
 - TX und RX muessen immer gekreuzt verbunden sein.
 - Die USB-Verbindungen der Boards bleiben zusaetzlich fuer Stromversorgung, Flashen und Debug moeglich.
-- Verwendetes Textprotokoll auf der Leitung: z.B. `SW1:ON`, `SW1:OFF`, `SCENE1:GO`, `GET DISPLAY`, `PING`/`PONG`. Das vollstaendige Protokoll ist in `MANUAL.md` und `CLAUDE.md` beschrieben.
+- Verwendetes Textprotokoll auf der Leitung: z.B. `SW1:ON`, `SW1:OFF`, `SCENE1:GO`, `GET DISPLAY`, `VER:<version>`, `PING`/`PONG`. Das vollstaendige Protokoll ist in `MANUAL.md` und `CLAUDE.md` beschrieben.
 
 
 ## Kompilierung und Hochladen 

@@ -50,6 +50,11 @@ TFT_eSPI tft = TFT_eSPI(screenWidth, screenHeight);
 #define PICO_HEARTBEAT_INTERVAL_MS 1000
 #define PICO_HEARTBEAT_TIMEOUT_MS  3000
 
+// Firmware-Version (Git-Commit-Count), von version.py als Build-Define gesetzt.
+#ifndef ESP_FW_VERSION
+#define ESP_FW_VERSION "00.00000"
+#endif
+
 // ----------------------------
 // Switch state
 // ----------------------------
@@ -317,6 +322,7 @@ static void update_pico_heartbeat()
     if (now - last_pico_ping_ms >= PICO_HEARTBEAT_INTERVAL_MS) {
         last_pico_ping_ms = now;
         PICO_UART.println("PING");
+        PICO_UART.println("VER:" ESP_FW_VERSION);
     }
 
     if (pico_online && now - last_pico_pong_ms > PICO_HEARTBEAT_TIMEOUT_MS) {
