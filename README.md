@@ -15,8 +15,8 @@ Die beiden Teile haben klar getrennte Rollen und werden als Frontend/Backend-Set
 
 ### esp32/ 
 stellt das lokale Touch-Terminal bereit (8 Tasten, ON/OFF-Statusfarben, Szenen-Ansicht, Rückmeldefehler-Anzeige).
-- Bei jeder Bedienung sendet das ESP32-Terminal einen zeilenbasierten Befehl (`SWn:ON`/`SWn:OFF` bzw. `SCENEn:GO`) über UART an den Pico.  
-
+- Bei jeder Bedienung sendet das ESP32-Terminal einen zeilenbasierten Befehl (`SWn:ON`/`SWn:OFF` bzw. `SCENEn:GO`) über UART an den Pico.
+- Im Szenenmodus erscheint auf der aktiven Szenen-Taste ein roter Punkt, sobald ein Relais direkt (nicht über eine Szene) geschaltet wurde. Der Punkt erlischt bei der nächsten Szenenaktivierung.
 
 ### pico/switch_server/
 enthaelt die eigentliche Relais- und Netzwerk-Firmware und implementiert:  
@@ -64,10 +64,12 @@ Wichtige Hinweise:
 - Verwendetes Textprotokoll auf der Leitung: z.B. `SW1:ON`, `SW1:OFF`, `SCENE1:GO`, `GET DISPLAY`, `PING`/`PONG`. Das vollstaendige Protokoll ist in `MANUAL.md` und `CLAUDE.md` beschrieben.
 
 
-### Kompilierung und Hochladen: Kurzanleitung für PICO und ESP32
+## Kompilierung und Hochladen 
+
+### Kurzanleitung für PICO und ESP32
 
 Der PICO und das ESP32 cyd Display müssen getrennt geflashed werden.  
-Zum flashen muss die serielle Verbindung zwischen dem PICO (GP0 und GP1) und dem ESP32 getrennt werden.  
+Zum flashen des  ESP32 muss die serielle Verbindung zwischen dem PICO (GP0 und GP1) und dem ESP32 getrennt werden.  
 Beim ersten Aufruf der upload scripts werden einige Dateien aus dem Netz geladen.
 
 Serielle Verbindung trennen: PICO (GP0 und GP1).  
@@ -82,10 +84,10 @@ cd pico
 ./upload.sh 
 
 ```
-## Kompilierung und Hochladen im Detail (normalerweise nicht notwendig)
+### Kompilierung und Hochladen im Detail (normalerweise nicht notwendig)
 
 
-### ESP32-Terminal (`esp32/`)
+#### ESP32-Terminal (`esp32/`)
 
 Kompilieren und hochladen über ein Helperscript
 
@@ -113,7 +115,7 @@ Flashen auf das ESP32-Board:
 pio run -e cyd -t upload
 ```
 
-### Pico-Implementierung (`pico/`)
+#### Pico-Implementierung (`pico/`)
 
 Empfohlen: Helper-Skript `pico/upload.sh` (baut und kopiert die UF2 auf das
 gemountete `RP2350`-Laufwerk):

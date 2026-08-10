@@ -76,6 +76,7 @@ Eine Szene schaltet mehrere Relais mit einem einzigen Befehl. Wenn der Szenenmod
 - Ein Klick auf eine Szene führt die hinterlegten Aktionen aus.
 - Grün kennzeichnet die zuletzt aktivierte Szene.
 - Rot kennzeichnet einen Rückmeldefehler bei der Ausführung dieser Szene.
+- Ein kleiner roter Punkt oben rechts auf der aktiven Szene weist darauf hin, dass mindestens ein Relais nach der Aktivierung der Szene direkt (nicht über eine Szene) geschaltet wurde. Die angezeigten Relaiszustände weichen damit vom definierten Szenenzustand ab. Der Punkt erlischt, sobald eine Szene erneut aktiviert wird.
 - Der darunterliegende Bereich **Relais** bleibt auf der Webseite direkt bedienbar.
 
 Eine Szene ist kein dauerhaft verriegelter Betriebszustand. Relais können nach dem Aufruf einer Szene weiterhin einzeln geschaltet werden.
@@ -120,6 +121,7 @@ Im Szenenmodus zeigt das Display nur aktivierte Szenen. Je nach Anzahl werden bi
 - Blau/Grau: Szene kann aktiviert werden.
 - Grün: zuletzt aktivierte Szene.
 - Rot: Rückmeldefehler bei der zuletzt ausgeführten Szene.
+- Roter Punkt oben rechts auf der grünen Taste: Seit der letzten Szenenaktivierung wurde mindestens ein Relais direkt geschaltet. Der Pico-Zustand weicht damit vom Szenenzustand ab. Durch erneutes Aktivieren einer Szene verschwindet der Punkt.
 - Antippen: Szene wird einmal ausgeführt.
 
 Im Szenenmodus können einzelne Relais nicht am Display geschaltet werden. Die direkte Relaisbedienung bleibt jedoch auf der Webseite verfügbar. Auch in Szenennamen erzeugt `|` einen Zeilenumbruch auf dem Display.
@@ -241,6 +243,7 @@ Hinweise:
 | Webseite zeigt **Getrennt** | Browser empfängt keine Live-Daten. Netzwerkverbindung prüfen und Seite neu laden. |
 | Rotes Relaisfeld | Physische Rückmeldung stimmt nicht rechtzeitig mit dem Sollzustand überein. Relais, Last, Rückmeldekontakt, Polarität und Rückmeldezeit prüfen. |
 | Rote Szene | Mindestens eine relevante Rückmeldung der zuletzt ausgeführten Szene ist fehlerhaft. Betroffene Relais einzeln kontrollieren. |
+| Roter Punkt auf aktiver Szene | Ein oder mehrere Relais wurden nach der letzten Szenenaktivierung direkt geschaltet. Die Relaiszustände stimmen nicht mehr mit dem Szenenzustand überein. Eine Szene aktivieren, um den definierten Zustand wiederherzustellen. |
 | Webseite nicht erreichbar | Angezeigte Display-IP, LAN-Kabel, DHCP-Zuweisung und statische Netzwerkeinstellungen prüfen. |
 | Schalten ohne Anmeldung nicht möglich | Anmelden oder den öffentlichen Zugriff durch einen Administrator aktivieren lassen. |
 | Szene fehlt auf Display/Webseite | In der Szenenkonfiguration prüfen, ob die Szene aktiviert und gespeichert wurde. |

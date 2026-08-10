@@ -61,8 +61,10 @@ static String   switch_names[SWITCH_COUNT];
 static bool     scene_mode = false;
 static String   scene_names[SWITCH_COUNT];
 static int      active_scene = -1;
+static bool     scene_dirty = false;
 static lv_obj_t * switch_btns[SWITCH_COUNT]  = { nullptr };
 static lv_obj_t * switch_lbls[SWITCH_COUNT]  = { nullptr };
+static lv_obj_t * warn_dots[SWITCH_COUNT]    = { nullptr };
 static lv_obj_t * title_label = nullptr;
 static lv_obj_t * ip_label    = nullptr;
 static bool display_config_loaded = false;
@@ -100,6 +102,11 @@ static bool parse_mode_or_scene_line(const String &line)
 
     if (line.startsWith("ASCENE:")) {
         active_scene = line.substring(7).toInt() - 1;  // 0 = keine aktive Szene
+        return true;
+    }
+
+    if (line.startsWith("SDIRTY:")) {
+        scene_dirty = (line.substring(7) == "ON");
         return true;
     }
 
@@ -377,10 +384,18 @@ static void update_switch_visual(int idx)
         else {
             lv_obj_add_flag(btn, LV_OBJ_FLAG_HIDDEN);
         }
+        // Warn-Punkt: sichtbar wenn aktive Szene direkt geändert wurde
+        if (warn_dots[idx]) {
+            if (scene_dirty && idx == active_scene)
+                lv_obj_clear_flag(warn_dots[idx], LV_OBJ_FLAG_HIDDEN);
+            else
+                lv_obj_add_flag(warn_dots[idx], LV_OBJ_FLAG_HIDDEN);
+        }
         return;
     }
 
     lv_obj_clear_flag(btn, LV_OBJ_FLAG_HIDDEN);
+    if (warn_dots[idx]) lv_obj_add_flag(warn_dots[idx], LV_OBJ_FLAG_HIDDEN);
     String name = switch_names[idx].length() > 0 ? switch_names[idx] : String(idx + 1);
     name.replace("|", "\n"); /* '|' im Namen erzwingt Zeilenumbruch am Display */
     if(feedback_error[idx]) {
@@ -427,6 +442,7 @@ static void apply_button_layout()
                 lv_obj_set_pos(switch_btns[i], x_start + j * (btn_w + gap_x), y_pos);
                 lv_obj_set_width(switch_lbls[i], btn_w - 12);
                 lv_obj_center(switch_lbls[i]);
+                if (warn_dots[i]) lv_obj_align(warn_dots[i], LV_ALIGN_TOP_RIGHT, -2, 2);
                 j++;
             }
         }
@@ -442,6 +458,7 @@ static void apply_button_layout()
                                            y_top   + (i / cols) * (gh + gy));
             lv_obj_set_width(switch_lbls[i], gw - 8);
             lv_obj_center(switch_lbls[i]);
+            if (warn_dots[i]) lv_obj_align(warn_dots[i], LV_ALIGN_TOP_RIGHT, -2, 2);
         }
     }
 }
@@ -534,6 +551,20 @@ static void create_ui(void)
 
         switch_btns[i] = btn;
         switch_lbls[i] = lbl;
+
+        // Warn-Punkt (roter Kreis oben rechts) für direkte Schaltung im Szenen-Modus
+        lv_obj_t * dot = lv_obj_create(btn);
+        lv_obj_set_size(dot, 10, 10);
+        lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_bg_color(dot, lv_color_hex(0xFF0000), 0);
+        lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(dot, 0, 0);
+        lv_obj_set_style_pad_all(dot, 0, 0);
+        lv_obj_clear_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_align(dot, LV_ALIGN_TOP_RIGHT, -2, 2);
+        lv_obj_add_flag(dot, LV_OBJ_FLAG_HIDDEN);
+        warn_dots[i] = dot;
+
         update_switch_visual(i);
     }
 }
