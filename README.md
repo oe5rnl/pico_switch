@@ -39,6 +39,28 @@ Typischer Zusammenspiel-Flow im Ueberblick:
 
 Damit bleibt die Verantwortung sauber getrennt: ESP32 = lokale Bedienoberflaeche, Pico = zentrale Steuer- und Netzwerkinstanz.
 
+### Dual-Core-Architektur (RP2350): Relais schalten immer
+
+Das Schalten der Relais muss **immer** funktionieren — unabhaengig vom LAN-Zustand
+(kein Kabel, Kabel gezogen/wieder gesteckt, laufende DHCP-Suche, haengende TCP-
+Verbindungen). Die blockierenden WIZnet-Aufrufe (`send`/`recv`/`sendto`/`disconnect`
+warten per Busy-Loop) wuerden in einer einzigen Schleife das Relais- und Display-
+Handling aushungern. Die Firmware nutzt deshalb **beide Kerne** des RP2350:
+
+- **core0 (Steuerung):** ESP-UART (`esp_link`), Relais-GPIO, Rueckmeldungen, Szenen.
+  Fasst **niemals** W6300 oder Flash an → kann nicht blockieren → Relais reagieren
+  sofort, egal was das Netzwerk gerade macht.
+- **core1 (Netzwerk):** W6300, HTTP-Server, DHCP, SSE-Live-Updates und das
+  Flash-Schreiben. Darf blockieren, ohne core0 zu stoeren.
+
+Synchronisation bewusst minimalistisch und deadlock-frei: ein einziger
+`recursive_mutex_t` schuetzt den geteilten Zustand (nie ueber Netz-I/O oder Flash
+gehalten), Auftraege laufen ueber wenige `volatile`-Flags zwischen den Kernen
+(z. B. „SSE senden", „Flash speichern", „IP-Status ans Display"). Flash-Schreiben
+laeuft nur auf core1 ueber `flash_safe_execute()`, waehrend core0 als
+Lockout-Victim pausiert (`flash_range_erase` sperrt sonst beide Kerne). Details:
+Abschnitt „2.7 Dual-Core-Architektur" in `CLAUDE.md`.
+
 
 ## Verkabelung zwischen Display und Pico
 

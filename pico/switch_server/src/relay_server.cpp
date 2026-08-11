@@ -9,6 +9,9 @@
 #include <vector>
 
 #include "pico/stdlib.h"
+#include "pico/multicore.h"
+#include "pico/mutex.h"
+#include "pico/flash.h"
 #include "hardware/gpio.h"
 #include "hardware/flash.h"
 #include "hardware/regs/addressmap.h"
@@ -314,6 +317,26 @@ static bool g_use_dhcp = false;  // Bootstrap-Modus: true = DHCP angefordert
 static bool lan_link_up = true;  // zuletzt bekannter PHY-Link-Status (W6300)
 static uint32_t last_link_check = 0;
 
+// ---- Dual-Core-Synchronisation -------------------------------------------
+// core0 = Steuerung (ESP-UART, Relais-GPIO, Feedback). core1 = Netzwerk
+// (W6300, HTTP, DHCP, Flash). Ein einziger rekursiver Mutex schuetzt den
+// geteilten Steuerzustand (Relaiszustaende, Namen, Titel, Szenen, Feedback).
+// Regel: g_state_mtx NIE ueber Netz-I/O oder Flash-Schreiben halten -
+// Serializer geben Kopien zurueck, gesendet wird ausserhalb des Locks. Dadurch
+// blockiert ein haengender Netz-Send auf core1 niemals das Schalten auf core0.
+static recursive_mutex_t g_state_mtx;
+static volatile bool g_sse_dirty = false;      // core0 -> core1: SSE-Broadcast anfordern
+static volatile bool g_persist_dirty = false;  // core0 -> core1: Flash-Speichern anfordern
+static volatile bool g_ip_status_dirty = false;  // core1 -> core0: IP-/Link-Status ans ESP senden
+static volatile bool g_core1_started = false;  // true, sobald core1 (Netz) laeuft
+
+struct StateLock {
+  StateLock() { recursive_mutex_enter_blocking(&g_state_mtx); }
+  ~StateLock() { recursive_mutex_exit(&g_state_mtx); }
+  StateLock(const StateLock &) = delete;
+  StateLock &operator=(const StateLock &) = delete;
+};
+
 static_assert(sizeof(PersistedConfig) <= FLASH_SECTOR_SIZE, "PersistedConfig must fit into one flash sector");
 
 static uint32_t millis32() {
@@ -599,6 +622,31 @@ static bool is_erased_flash(const void *data, size_t size) {
   return true;
 }
 
+// Fuehrt das eigentliche Flash-Erase/Program aus. Wird via flash_safe_execute
+// (core1) oder mit gesperrten Interrupts (Boot, core0) aufgerufen.
+struct FlashWriteCtx {
+  const uint8_t *sector;
+  const uintptr_t *offsets;
+  size_t count;
+  bool wrote;
+};
+
+static void flash_write_cb(void *param) {
+  FlashWriteCtx *ctx = static_cast<FlashWriteCtx *>(param);
+  for (size_t i = 0; i < ctx->count; ++i) {
+    const uintptr_t offset = ctx->offsets[i];
+    if (!persist_flash_offset_usable(offset)) continue;
+    bool duplicate = false;
+    for (size_t j = 0; j < i; ++j) {
+      if (ctx->offsets[j] == offset) { duplicate = true; break; }
+    }
+    if (duplicate) continue;
+    flash_range_erase(offset, FLASH_SECTOR_SIZE);
+    flash_range_program(offset, ctx->sector, FLASH_SECTOR_SIZE);
+    ctx->wrote = true;
+  }
+}
+
 static void save_config() {
   if (persist_write_locked) {
     printf("Persistenz-Schreibschutz aktiv, Konfiguration nicht gespeichert.\n");
@@ -606,6 +654,9 @@ static void save_config() {
   }
 
   PersistedConfig config{};
+  std::array<uint8_t, FLASH_SECTOR_SIZE> sector{};
+  {
+    StateLock snapshot;  // konsistenter Snapshot des geteilten Steuerzustands unter Lock
   config.magic = cfg::PERSIST_MAGIC;
   config.version = cfg::PERSIST_VERSION;
   for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) {
@@ -644,22 +695,25 @@ static void save_config() {
   }
   config.active_scene = (active_scene >= 0 && active_scene < cfg::SCENE_COUNT) ? static_cast<uint8_t>(active_scene + 1) : 0;
 
-  std::array<uint8_t, FLASH_SECTOR_SIZE> sector{};
   std::memset(sector.data(), 0xff, sector.size());
   std::memcpy(sector.data(), &config, sizeof(config));
+  }  // g_state_mtx hier freigeben: Flash-Schreiben laeuft OHNE Lock
+
   std::array<uintptr_t, 4> offsets = persist_flash_offsets();
-  bool wrote_any = false;
-  uint32_t interrupts = save_and_disable_interrupts();
-  for (size_t i = 0; i < offsets.size(); ++i) {
-    uintptr_t offset = offsets[i];
-    if (!persist_flash_offset_usable(offset)) continue;
-    if (std::find(offsets.begin(), offsets.begin() + i, offset) != offsets.begin() + i) continue;
-    flash_range_erase(offset, FLASH_SECTOR_SIZE);
-    flash_range_program(offset, sector.data(), sector.size());
-    wrote_any = true;
+  FlashWriteCtx ctx{sector.data(), offsets.data(), offsets.size(), false};
+  // Flash-Erase/Program macht den Flash fuer BEIDE Kerne unzugaenglich. Sobald
+  // core1 laeuft, laufen wir hier auf core1 und sperren core0 per
+  // flash_safe_execute aus; vor dem core1-Start (Boot-Migration) genuegt das
+  // Sperren der Interrupts.
+  if (g_core1_started) {
+    if (flash_safe_execute(flash_write_cb, &ctx, 3000) != PICO_OK)
+      printf("flash_safe_execute fehlgeschlagen, Konfiguration nicht gespeichert.\n");
+  } else {
+    uint32_t interrupts = save_and_disable_interrupts();
+    flash_write_cb(&ctx);
+    restore_interrupts(interrupts);
   }
-  restore_interrupts(interrupts);
-  if (!wrote_any) printf("Kein sicherer Persistenz-Slot gefunden, Konfiguration nicht gespeichert.\n");
+  if (!ctx.wrote) printf("Kein sicherer Persistenz-Slot gefunden, Konfiguration nicht gespeichert.\n");
 }
 
 static ConfigLoadResult load_config() {
@@ -1059,6 +1113,7 @@ static void start_feedback_check(uint8_t idx, int8_t source_scene) {
 }
 
 static bool service_relay_feedback() {
+  StateLock lock;
   bool changed = false;
   const uint32_t now = millis32();
   for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) {
@@ -1089,40 +1144,48 @@ static bool scene_state_matches(uint8_t idx) {
 }
 
 static void set_relay(uint8_t idx, bool on) {
-  relay_states[idx] = on;
-  apply_relay(idx);
-  start_feedback_check(idx, -1);
-  if (scene_mode && active_scene >= 0) {
-    scene_dirty = !scene_state_matches(active_scene);  // sauber, sobald wieder die Szenenkonfig erreicht ist
-  } else {
-    active_scene = -1;
+  {
+    StateLock lock;
+    relay_states[idx] = on;
+    apply_relay(idx);
+    start_feedback_check(idx, -1);
+    if (scene_mode && active_scene >= 0) {
+      scene_dirty = !scene_state_matches(active_scene);  // sauber, sobald wieder die Szenenkonfig erreicht ist
+    } else {
+      active_scene = -1;
+    }
   }
-  save_config();
+  g_persist_dirty = true;  // core1 speichert im naechsten Netz-Loop in den Flash
   esp_link_state_dirty = true;
+  g_sse_dirty = true;
 }
 
 // Wendet eine (aktivierte) Szene momentan an: setzt Relais gemaess Vorgabe, ueberspringt "unveraendert".
 static void activate_scene(uint8_t idx) {
-  if (idx >= cfg::SCENE_COUNT || !scenes[idx].enabled) return;
-  const bool selection_changed = (active_scene != idx);
-  active_scene = idx;
-  scene_dirty = false;
-  bool changed = false;
-  for (uint8_t r = 0; r < cfg::RELAY_COUNT; ++r) {
-    const uint8_t a = scenes[idx].action[r];
-    if (a == 2) continue;
-    const bool on = (a == 1);
-    if (relay_states[r] != on) {
-      relay_states[r] = on;
-      apply_relay(r);
-      changed = true;
+  bool persist = false;
+  {
+    StateLock lock;
+    if (idx >= cfg::SCENE_COUNT || !scenes[idx].enabled) return;
+    const bool selection_changed = (active_scene != idx);
+    active_scene = idx;
+    scene_dirty = false;
+    bool changed = false;
+    for (uint8_t r = 0; r < cfg::RELAY_COUNT; ++r) {
+      const uint8_t a = scenes[idx].action[r];
+      if (a == 2) continue;
+      const bool on = (a == 1);
+      if (relay_states[r] != on) {
+        relay_states[r] = on;
+        apply_relay(r);
+        changed = true;
+      }
+      start_feedback_check(r, static_cast<int8_t>(idx));
     }
-    start_feedback_check(r, static_cast<int8_t>(idx));
+    persist = changed || selection_changed;
   }
-  if (changed || selection_changed) {
-    save_config();
-  }
+  if (persist) g_persist_dirty = true;
   esp_link_state_dirty = true;
+  g_sse_dirty = true;
 }
 
 static std::string active_users_array_json() {
@@ -1151,6 +1214,7 @@ static std::string active_users_json(bool include_users) {
 
 static std::string state_json(bool include_users) {
   prune_sessions();
+  StateLock lock;  // geteilten Steuerzustand konsistent lesen; Kopie wird ohne Lock gesendet
   std::string out = "{\"relays\":[";
   for (size_t i = 0; i < relay_states.size(); ++i) {
     if (i) out += ',';
@@ -1187,6 +1251,7 @@ static std::string state_json(bool include_users) {
 }
 
 static std::string scenes_config_json() {
+  StateLock lock;
   std::string out = "[";
   for (uint8_t s = 0; s < cfg::SCENE_COUNT; ++s) {
     if (s) out += ',';
@@ -1564,20 +1629,23 @@ static void keepalive_sse() {
 }
 
 static void handle_config_post(uint8_t sn, const HttpRequest &req) {
-  update_names_from_json(req.body);
-  update_bool_array_from_json(req.body, "act_low", relay_active_low);
-  update_bool_array_from_json(req.body, "feedback_enabled", feedback_enabled);
-  update_bool_array_from_json(req.body, "feedback_low", feedback_active_low);
-  feedback_timeout_ms = std::clamp<uint32_t>(json_uint_value(req.body, "feedback_timeout", feedback_timeout_ms),
-                                              cfg::MIN_FEEDBACK_TIMEOUT_MS,
-                                              cfg::MAX_FEEDBACK_TIMEOUT_MS);
-  std::string title = json_string_value(req.body, "title");
-  std::string subtitle = json_string_value(req.body, "subtitle");
-  if (!title.empty()) site_title = title.substr(0, 64);
-  if (!subtitle.empty()) site_subtitle = subtitle.substr(0, 64);
-  public_access = json_bool_value(req.body, "public", public_access);
-  for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) apply_relay(i);  // geaenderte Polaritaet sofort ausgeben
-  configure_feedback_inputs();
+  {
+    StateLock lock;
+    update_names_from_json(req.body);
+    update_bool_array_from_json(req.body, "act_low", relay_active_low);
+    update_bool_array_from_json(req.body, "feedback_enabled", feedback_enabled);
+    update_bool_array_from_json(req.body, "feedback_low", feedback_active_low);
+    feedback_timeout_ms = std::clamp<uint32_t>(json_uint_value(req.body, "feedback_timeout", feedback_timeout_ms),
+                                                cfg::MIN_FEEDBACK_TIMEOUT_MS,
+                                                cfg::MAX_FEEDBACK_TIMEOUT_MS);
+    std::string title = json_string_value(req.body, "title");
+    std::string subtitle = json_string_value(req.body, "subtitle");
+    if (!title.empty()) site_title = title.substr(0, 64);
+    if (!subtitle.empty()) site_subtitle = subtitle.substr(0, 64);
+    public_access = json_bool_value(req.body, "public", public_access);
+    for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) apply_relay(i);  // geaenderte Polaritaet sofort ausgeben
+    configure_feedback_inputs();
+  }
   save_config();
   broadcast_state();
   esp_link_display_dirty = true;
@@ -1703,18 +1771,21 @@ static std::string build_scenes_html(const Session *session) {
 }
 
 static void handle_scenes_post(uint8_t sn, const HttpRequest &req) {
-  scene_mode = json_bool_value(req.body, "mode", scene_mode);
-  for (uint8_t s = 0; s < cfg::SCENE_COUNT; ++s) {
-    const std::string p = "s" + std::to_string(s) + "_";
-    scenes[s].enabled = json_bool_value(req.body, p + "en", scenes[s].enabled);
-    scenes[s].name = json_string_value(req.body, p + "name").substr(0, 32);
-    const std::string act = json_string_value(req.body, p + "act");
-    for (uint8_t r = 0; r < cfg::RELAY_COUNT && r < act.size(); ++r) {
-      const char c = act[r];
-      scenes[s].action[r] = (c == '1') ? 1 : (c == '0') ? 0 : 2;
+  {
+    StateLock lock;
+    scene_mode = json_bool_value(req.body, "mode", scene_mode);
+    for (uint8_t s = 0; s < cfg::SCENE_COUNT; ++s) {
+      const std::string p = "s" + std::to_string(s) + "_";
+      scenes[s].enabled = json_bool_value(req.body, p + "en", scenes[s].enabled);
+      scenes[s].name = json_string_value(req.body, p + "name").substr(0, 32);
+      const std::string act = json_string_value(req.body, p + "act");
+      for (uint8_t r = 0; r < cfg::RELAY_COUNT && r < act.size(); ++r) {
+        const char c = act[r];
+        scenes[s].action[r] = (c == '1') ? 1 : (c == '0') ? 0 : 2;
+      }
     }
+    if (active_scene >= 0 && (active_scene >= cfg::SCENE_COUNT || !scenes[active_scene].enabled)) active_scene = -1;
   }
-  if (active_scene >= 0 && (active_scene >= cfg::SCENE_COUNT || !scenes[active_scene].enabled)) active_scene = -1;
   save_config();
   broadcast_state();
   esp_link_display_dirty = true;
@@ -1956,7 +2027,6 @@ static bool wait_for_phy_link(uint32_t timeout_ms) {
   uint32_t start = millis32();
   while (!phy_link_up()) {
     if (millis32() - start >= timeout_ms) return false;
-    esp_link::service();
     sleep_ms(10);
   }
   lan_link_up = true;
@@ -2019,7 +2089,6 @@ static bool acquire_dhcp_address() {
     } else if (result == DHCP_STOPPED) {
       break;
     }
-    esp_link::service();  // ESP-Display schon waehrend der DHCP-Suche bedienen
     sleep_ms(10);
   }
 
@@ -2157,6 +2226,7 @@ static void send_line(const char *prefix, const std::string &value) {
 }
 
 static void send_states() {
+  StateLock lock;
   for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) {
     uart_puts(UART, ("STATE" + std::to_string(i + 1) + ":").c_str());
     uart_puts(UART, relay_states[i] ? "ON\n" : "OFF\n");
@@ -2171,6 +2241,7 @@ static void send_states() {
 }
 
 static void send_display_config() {
+  StateLock lock;
   send_line("TITLE:", site_title);
   uart_puts(UART, scene_mode ? "MODE:SCENE\n" : "MODE:RELAY\n");
   uart_puts(UART, ("IP:" + ip_status_text() + "\n").c_str());
@@ -2193,7 +2264,7 @@ static bool handle_scene_command(const char *line) {
   if (std::strcmp(separator + 1, "GO") != 0) return false;
   if (!scenes[scene_number - 1].enabled) return true;
   activate_scene(static_cast<uint8_t>(scene_number - 1));
-  broadcast_state();
+  g_sse_dirty = true;  // SSE-Broadcast von core1 anfordern (W6300 nur dort)
   return true;
 }
 
@@ -2215,7 +2286,7 @@ static bool handle_switch_command(const char *line) {
     return false;
   }
 
-  broadcast_state();
+  g_sse_dirty = true;  // SSE-Broadcast von core1 anfordern (W6300 nur dort)
   return true;
 }
 
@@ -2322,15 +2393,44 @@ static void service_network_link() {
   lan_link_up = up;
   if (up) {
     if (g_use_dhcp) dhcp_assigned = false;  // bis zur neuen Lease "connecting LAN" anzeigen
-    esp_link::notify_ip_status();           // Zwischenstand ans Display
+    g_ip_status_dirty = true;               // Zwischenstand ans Display (core0 sendet)
     reconnect_network();                    // neue DHCP-Lease/Sockets holen
-    esp_link::notify_ip_status();           // finale IP nach Reconnect ans Display pushen
+    g_ip_status_dirty = true;               // finale IP nach Reconnect ans Display pushen
   } else {
-    esp_link::notify_ip_status();           // "LAN connection lost"
+    g_ip_status_dirty = true;               // "LAN connection lost" (core0 sendet)
     for (uint8_t sn = 0; sn < cfg::HTTP_SOCKET_COUNT; ++sn) force_close_socket(sn);  // haengende Verbindungen sofort verwerfen (ohne Blockieren)
   }
 }
 
+
+// ===========================================================================
+// core1: Netzwerk (W6300, HTTP, DHCP, SSE) + Flash-Schreiben.
+// Laeuft voellig entkoppelt vom Relais-/ESP-Steuerpfad auf core0. Blockierende
+// WIZnet-Aufrufe hier koennen das Schalten der Relais niemals verzoegern.
+// WICHTIG: core1 fasst NIE die ESP-UART an (uart0 gehoert core0); IP-Status
+// wird ueber g_ip_status_dirty an core0 delegiert.
+// ===========================================================================
+static void net_core_main() {
+  init_network();
+  esp_link_display_dirty = true;  // ESP nach DHCP mit korrekter IP versorgen (core0 sendet)
+  g_ip_status_dirty = true;
+  open_http_sockets();
+  printf("HTTP-Server: http://%u.%u.%u.%u/\n", g_net_info.ip[0], g_net_info.ip[1], g_net_info.ip[2], g_net_info.ip[3]);
+  while (true) {
+    for (uint8_t sn = 0; sn < cfg::HTTP_SOCKET_COUNT; ++sn) service_socket(sn);
+    keepalive_sse();
+    service_network_link();
+    if (g_persist_dirty) {  // Flash-Schreiben nur hier (core0 ist Lockout-Victim)
+      g_persist_dirty = false;
+      save_config();
+    }
+    if (g_sse_dirty) {  // SSE-Broadcast nur hier (W6300 nur auf core1)
+      g_sse_dirty = false;
+      broadcast_state();
+    }
+    sleep_ms(1);
+  }
+}
 
 int main() {
   esp_link::init();  // UART sofort auf Idle-High treiben, bevor der ESP booten kann
@@ -2351,22 +2451,24 @@ int main() {
   g_use_dhcp = dhcp_requested_at_boot();  // Netzwerkmodus frueh bestimmen (fuer IP-Anzeige am ESP)
   // Ab hier stehen Titel/Namen/Zustaende fest: ESP-Display sofort bedienen (vor DHCP)
   esp_link::flush_rx();
-  for (int i = 0; i < 300; ++i) {  // kurze USB-Debug-Startpause, dabei ESP-Link aktiv halten
-    esp_link::service();
-    sleep_ms(10);
-  }
-  init_network();
-  esp_link_display_dirty = true;  // ESP nach DHCP mit korrekter IP versorgen
-  open_http_sockets();
-  printf("HTTP-Server: http://%u.%u.%u.%u/\n", g_net_info.ip[0], g_net_info.ip[1], g_net_info.ip[2], g_net_info.ip[3]);
+
+  // Synchronisation + Flash-Schutz vorbereiten, dann core1 (Netzwerk) starten.
+  recursive_mutex_init(&g_state_mtx);
+  flash_safe_execute_core_init();  // core0 als Lockout-Victim registrieren (core1 schreibt Flash)
+  g_core1_started = true;
+  multicore_launch_core1(net_core_main);
+
+  // core0: reiner Steuer-Loop. Beruehrt niemals W6300/Flash -> nie blockiert.
+  // Das Schalten der Relais funktioniert damit unabhaengig vom LAN-Zustand.
   while (true) {
-    for (uint8_t sn = 0; sn < cfg::HTTP_SOCKET_COUNT; ++sn) service_socket(sn);
-    keepalive_sse();
     esp_link::service();
-    service_network_link();
+    if (g_ip_status_dirty) {  // IP-/Link-Status von core1 gemeldet -> ans Display senden
+      g_ip_status_dirty = false;
+      esp_link::notify_ip_status();
+    }
     if (service_relay_feedback()) {
       esp_link_state_dirty = true;
-      broadcast_state();
+      g_sse_dirty = true;
     }
     sleep_ms(1);
   }

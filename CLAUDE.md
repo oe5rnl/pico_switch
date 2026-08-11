@@ -136,7 +136,53 @@ Im Web-Footer werden beide Firmware-Versionen angezeigt:
 - Das ESP32 meldet seine Version per `VER:<version>` über UART an den Pico;
   ohne verbundenes Display steht dort `esp32: -`.
 
-### 2.7 Startablauf (`main()`) — wichtig für Boot-Timing
+### 2.7 Dual-Core-Architektur (RP2350) — Relais schalten IMMER
+
+**Kernanforderung:** Das Schalten der Relais muss *immer* funktionieren, unabhängig
+vom LAN-Zustand (kein Kabel, Kabel gezogen/wieder gesteckt, DHCP-Suche, hängende
+TCP-Verbindungen). Die blockierenden WIZnet-ioLibrary-Aufrufe (`send`/`recv`/
+`sendto`/`disconnect` warten per Busy-Loop auf `Sn_IR_SENDOK`/`Sn_SR`) würden in
+einer Single-Loop das Relais-/Display-Handling aushungern. Deshalb ist die Firmware
+auf die **zwei Kerne** des RP2350 aufgeteilt:
+
+| | **core0 — Steuerung** | **core1 — Netzwerk** |
+|---|---|---|
+| Aufgaben | ESP-UART (`esp_link::service`), Relais-GPIO, Rückmeldungen, Szenen | W6300, HTTP-Server, DHCP, SSE, **Flash-Schreiben** |
+| Blockiert nie? | **ja** (nur GPIO/UART, kein W6300/Flash) | darf blockieren (isoliert von core0) |
+| Loop | `net_core_main()` **nicht** — reiner `while`-Loop in `main()` | `net_core_main()` |
+
+- **core0** (`main()` nach `multicore_launch_core1`): `esp_link::service()`,
+  `service_relay_feedback()`, Versand des IP-Status. Fasst **niemals** W6300 oder
+  Flash an → kann nicht blockieren → Relais reagieren sofort.
+- **core1** (`net_core_main()`): `init_network()`, `service_socket()×8`,
+  `keepalive_sse()`, `service_network_link()` (LAN-Reconnect) und die Flash-/SSE-
+  Aufträge von core0.
+
+**Synchronisation (bewusst minimalistisch, deadlock-frei):**
+
+- Ein einziger `recursive_mutex_t g_state_mtx` schützt den geteilten Steuerzustand
+  (Relais-Zustände, Namen/Titel, Szenen, `active_scene`, `esp_fw_version` …). Über
+  die RAII-Hülle `struct StateLock`. Nur *ein* Mutex → keine Lock-Reihenfolge →
+  Deadlock unmöglich; `recursive_*` erlaubt Wiedereintritt (Helfer rufen Helfer).
+- **Regel:** Der Mutex wird **nie** über Netz-I/O oder Flash gehalten. Serializer
+  bauen ihren String unter Lock, geben eine Kopie zurück, senden erst danach.
+- **Cross-Core-Flags** (`volatile bool`): `g_sse_dirty` (core0→core1: SSE senden),
+  `g_persist_dirty` (core0→core1: Flash speichern), `g_ip_status_dirty`
+  (core1→core0: IP-/Link-Status ans Display), `g_core1_started`.
+- **W6300 ausschließlich auf core1.** Schaltet core0 ein Relais (ESP-Taste), ruft es
+  `set_relay()` (unter Lock, GPIO) und setzt `g_sse_dirty`/`g_persist_dirty`; core1
+  erledigt Broadcast und Flash. `service_network_link()` fasst die ESP-UART nie an,
+  sondern meldet den IP-Status über `g_ip_status_dirty` an core0.
+- **Flash-Sicherheit:** `flash_range_erase` macht den XIP-Flash für **beide** Kerne
+  unzugänglich. Deshalb schreibt nur core1 und nur über `flash_safe_execute(...)`;
+  core0 registriert sich per `flash_safe_execute_core_init()` als Lockout-Victim
+  (führt während der Flash-Operation den Multicore-Lockout-Handler aus). `save_config()`
+  nutzt vor dem core1-Start (Boot) noch den direkten `save_and_disable_interrupts`-Pfad.
+- **Heap:** Beide Kerne nutzen `std::string` → `PICO_USE_MALLOC_MUTEX=1` (in
+  `CMakeLists.txt`) macht malloc multicore-sicher.
+- CMake: zusätzlich `pico_multicore` und `pico_flash` verlinkt.
+
+### 2.8 Startablauf (`main()`) — wichtig für Boot-Timing
 
 Reihenfolge bewusst so gewählt, damit das Display **unabhängig vom DHCP** früh online geht:
 
@@ -145,12 +191,14 @@ Reihenfolge bewusst so gewählt, damit das Display **unabhängig vom DHCP** frü
 2. `stdio_init_all()`.
 3. Relais- und Config-Init (`init_relays`, `load_config`, `init_users`, `apply_relay`).
    Ab hier stehen Titel/Namen/Zustände fest → Display kann bedient werden.
-4. `esp_link::flush_rx()`, danach ~3 s Startpause, in der bereits `esp_link::service()`
-   läuft (USB-Debug-Timing bleibt, ESP-Link ist aber sofort aktiv).
-5. `init_network()` (DHCP/statisch). **Während der blockierenden DHCP-Warteschleife**
-   in `acquire_dhcp_address()` wird `esp_link::service()` weiter aufgerufen.
-6. Sockets öffnen, dann Endlos-Hauptschleife: `service_socket()`, `keepalive_sse()`,
-   `esp_link::service()`.
+4. `esp_link::flush_rx()`.
+5. `recursive_mutex_init(&g_state_mtx)`, `flash_safe_execute_core_init()` (core0 als
+   Lockout-Victim), `g_core1_started = true`, dann `multicore_launch_core1(net_core_main)`.
+6. **core0** tritt in den Steuer-Loop ein (`esp_link::service`, IP-Status,
+   `service_relay_feedback`). **core1** startet parallel `net_core_main()`:
+   `init_network()` (DHCP/statisch, darf blockieren), Sockets öffnen, dann
+   `service_socket()×8` / `keepalive_sse()` / `service_network_link()` plus Flash-/
+   SSE-Aufträge. Der Boot des Displays hängt damit **nicht** mehr am DHCP.
 
 ---
 

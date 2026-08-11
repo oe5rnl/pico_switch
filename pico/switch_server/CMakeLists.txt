@@ -55,6 +55,8 @@ target_include_directories(switch_w6300_relay PRIVATE
 
 target_link_libraries(switch_w6300_relay PRIVATE
     pico_stdlib
+    pico_multicore
+    pico_flash
     hardware_gpio
     hardware_flash
     hardware_sync
@@ -65,6 +67,10 @@ target_link_libraries(switch_w6300_relay PRIVATE
     DHCP_FILES
     IOLIBRARY_FILES
 )
+
+# core0 (Steuerung) und core1 (Netzwerk) nutzen beide std::string -> malloc
+# muss multicore-sicher sein (Spinlock um den Heap).
+target_compile_definitions(switch_w6300_relay PRIVATE PICO_USE_MALLOC_MUTEX=1)
 
 pico_enable_stdio_usb(switch_w6300_relay 1)
 pico_enable_stdio_uart(switch_w6300_relay 0)
