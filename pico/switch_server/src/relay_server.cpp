@@ -43,6 +43,16 @@ constexpr bool RELAY_ACTIVE_LOW = false;
 constexpr uint32_t DEFAULT_FEEDBACK_TIMEOUT_MS = 500;
 constexpr uint32_t MIN_FEEDBACK_TIMEOUT_MS = 10;
 constexpr uint32_t MAX_FEEDBACK_TIMEOUT_MS = 10000;
+#ifdef INPUT_MODE_BUTTON
+// Taster-Modus: GP10-28 sind entprellte Taster; die Zeit ist die Entprellzeit.
+constexpr uint32_t DEFAULT_INPUT_TIME_MS = 30;
+constexpr uint32_t MIN_INPUT_TIME_MS = 5;
+constexpr uint32_t MAX_INPUT_TIME_MS = 2000;
+#else
+constexpr uint32_t DEFAULT_INPUT_TIME_MS = DEFAULT_FEEDBACK_TIMEOUT_MS;
+constexpr uint32_t MIN_INPUT_TIME_MS = MIN_FEEDBACK_TIMEOUT_MS;
+constexpr uint32_t MAX_INPUT_TIME_MS = MAX_FEEDBACK_TIMEOUT_MS;
+#endif
 constexpr uint16_t HTTP_PORT = 80;
 constexpr uint8_t HTTP_SOCKET_COUNT = 8;
 constexpr uint8_t MAX_SSE_SOCKETS = HTTP_SOCKET_COUNT > 2 ? HTTP_SOCKET_COUNT - 2 : 1;
@@ -281,12 +291,17 @@ static std::array<std::string, cfg::RELAY_COUNT> relay_names;
 static std::array<bool, cfg::RELAY_COUNT> relay_active_low = {false, false, false, false, false, false, false, false};
 static std::array<bool, cfg::RELAY_COUNT> feedback_enabled{};
 static std::array<bool, cfg::RELAY_COUNT> feedback_active_low{};
-static uint32_t feedback_timeout_ms = cfg::DEFAULT_FEEDBACK_TIMEOUT_MS;
+static uint32_t feedback_timeout_ms = cfg::DEFAULT_INPUT_TIME_MS;
 static std::array<bool, cfg::RELAY_COUNT> feedback_pending{};
 static std::array<bool, cfg::RELAY_COUNT> feedback_error{};
 static std::array<uint32_t, cfg::RELAY_COUNT> feedback_deadline{};
 static std::array<int8_t, cfg::RELAY_COUNT> feedback_source_scene = {-1, -1, -1, -1, -1, -1, -1, -1};
 static std::array<bool, cfg::SCENE_COUNT> scene_feedback_error{};
+#ifdef INPUT_MODE_BUTTON
+static std::array<bool, cfg::RELAY_COUNT> button_pressed{};   // entprellter Tasterzustand (true = gedrueckt)
+static std::array<bool, cfg::RELAY_COUNT> button_raw{};       // zuletzt gelesener Rohpegel (true = gedrueckt)
+static std::array<uint32_t, cfg::RELAY_COUNT> button_since{}; // Zeitpunkt der letzten Rohpegel-Aenderung
+#endif
 static std::string site_title = "OE5XBB-Steuerung";
 static std::string site_subtitle = "Relais-&Uuml;bersicht";
 static std::string esp_fw_version = "-";  // vom ESP-Display per UART gemeldet (VER:)
@@ -953,8 +968,8 @@ static ConfigLoadResult load_config() {
       feedback_active_low[i] = config->feedback_active_low[i] != 0;
     }
     feedback_timeout_ms = std::clamp<uint32_t>(config->feedback_timeout_ms,
-                                                cfg::MIN_FEEDBACK_TIMEOUT_MS,
-                                                cfg::MAX_FEEDBACK_TIMEOUT_MS);
+                                                cfg::MIN_INPUT_TIME_MS,
+                                                cfg::MAX_INPUT_TIME_MS);
     public_access = config->public_access != 0;
     if (config->site_title[0]) site_title = config->site_title;
     if (config->site_subtitle[0]) site_subtitle = config->site_subtitle;
@@ -1188,6 +1203,37 @@ static void activate_scene(uint8_t idx) {
   g_sse_dirty = true;
 }
 
+#ifdef INPUT_MODE_BUTTON
+// Liest die entprellten Taster (GP10-28). Eine steigende Flanke (Druck) schaltet
+// den zugehoerigen Kanal um (Toggle) bzw. loest im Szenen-Modus die Szene aus.
+// Laeuft auf core0 parallel zu den Web-/ESP-Buttons. Rueckgabe: LED-Zustand geaendert.
+static bool service_buttons() {
+  StateLock lock;
+  const uint32_t now = millis32();
+  const uint32_t debounce = feedback_timeout_ms;
+  bool led_changed = false;
+  for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) {
+    const bool raw = gpio_get(cfg::FEEDBACK_PINS[i]) == 0;  // Pull-up: gedrueckt = LOW
+    if (raw != button_raw[i]) {
+      button_raw[i] = raw;
+      button_since[i] = now;
+    } else if (raw != button_pressed[i] &&
+               static_cast<int32_t>(now - button_since[i]) >= static_cast<int32_t>(debounce)) {
+      button_pressed[i] = raw;
+      led_changed = true;
+      if (raw) {  // steigende Flanke: Aktion ausloesen
+        if (scene_mode) {
+          if (i < cfg::SCENE_COUNT && scenes[i].enabled) activate_scene(i);
+        } else {
+          set_relay(i, !relay_states[i]);
+        }
+      }
+    }
+  }
+  return led_changed;
+}
+#endif
+
 static std::string active_users_array_json() {
   prune_sessions();
   prune_guest_visitors();
@@ -1244,6 +1290,14 @@ static std::string state_json(bool include_users) {
     out += scene_feedback_error[i] ? "true" : "false";
   }
   out += ']';
+#ifdef INPUT_MODE_BUTTON
+  out += ",\"buttons\":[";
+  for (size_t i = 0; i < button_pressed.size(); ++i) {
+    if (i) out += ',';
+    out += button_pressed[i] ? "true" : "false";
+  }
+  out += ']';
+#endif
   out += ",\"active_users\":";
   out += (include_users ? active_users_array_json() : "null");
   out += '}';
@@ -1449,12 +1503,28 @@ static std::string build_password_html(const Session *session, const std::string
 }
 
 static std::string build_config_html(const Session *session) {
+#ifdef INPUT_MODE_BUTTON
+  const char *time_label = "Taster-Entprellzeit";
+  const char *led_css = ".tinfo{color:#9e9e9e;white-space:nowrap}.tled{width:14px;height:14px;border-radius:50%;background:#444;border:1px solid #222;flex:none}.tled.on{background:#51cf66;box-shadow:0 0 6px #51cf66}";
+  const char *led_js = "function refreshLeds(){fetch('/state').then(r=>r.json()).then(d=>{if(!d.buttons)return;document.querySelectorAll('.tled').forEach(e=>{e.classList.toggle('on',!!d.buttons[+e.dataset.led])})}).catch(()=>{})}setInterval(refreshLeds,400);refreshLeds();";
+#else
+  const char *time_label = "Rueckmeldezeit";
+  const char *led_css = "";
+  const char *led_js = "";
+#endif
+  const std::string time_min = std::to_string(cfg::MIN_INPUT_TIME_MS);
+  const std::string time_max = std::to_string(cfg::MAX_INPUT_TIME_MS);
+  const std::string time_def = std::to_string(cfg::DEFAULT_INPUT_TIME_MS);
   std::string rows;
   for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) {
     const std::string index = std::to_string(i);
+#ifdef INPUT_MODE_BUTTON
+    rows += "<div class=\"row relay-config\"><label>Relais " + std::to_string(i + 1) + " (GP" + std::to_string(cfg::RELAY_PINS[i]) + ")</label><input maxlength=\"32\" value=\"" + html_escape(relay_names[i]) + "\" data-idx=\"" + index + "\"><label class=\"checklbl\" title=\"Relaisausgang LOW-aktiv\"><input type=\"checkbox\" data-low=\"" + index + "\"" + std::string(relay_active_low[i] ? " checked" : "") + "> Low aktiv</label><span class=\"tinfo\">Taster GP" + std::to_string(cfg::FEEDBACK_PINS[i]) + "</span><span class=\"tled\" data-led=\"" + index + "\" title=\"Tasterzustand\"></span></div>";
+#else
     rows += "<div class=\"row relay-config\"><label>Relais " + std::to_string(i + 1) + " (GP" + std::to_string(cfg::RELAY_PINS[i]) + ")</label><input maxlength=\"32\" value=\"" + html_escape(relay_names[i]) + "\" data-idx=\"" + index + "\"><label class=\"checklbl\" title=\"Relaisausgang LOW-aktiv\"><input type=\"checkbox\" data-low=\"" + index + "\"" + std::string(relay_active_low[i] ? " checked" : "") + "> Low aktiv</label><label class=\"checklbl\" title=\"Physische Rueckmeldung ueber GP" + std::to_string(cfg::FEEDBACK_PINS[i]) + " pruefen\"><input type=\"checkbox\" data-fb=\"" + index + "\"" + std::string(feedback_enabled[i] ? " checked" : "") + "> Rueckmeldung GP" + std::to_string(cfg::FEEDBACK_PINS[i]) + "</label><label class=\"checklbl\" title=\"Rueckmeldepegel fuer EIN ist LOW\"><input type=\"checkbox\" data-fblow=\"" + index + "\"" + std::string(feedback_active_low[i] ? " checked" : "") + "> Rueckm. LOW</label></div>";
+#endif
   }
-  std::string html = "<!DOCTYPE html><html lang=\"de\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + html_escape(site_title) + " - Konfiguration</title><style>html,body{margin:0}body{box-sizing:border-box;font-family:'Segoe UI',sans-serif;background:#121212;color:#e0e0e0;min-height:100vh;padding:108px 24px 24px}" + page_header_css() + "h1{color:#4dabf7}.card{background:#1e1e1e;padding:24px;max-width:980px;border:1px solid #2d2d2d}.row{display:flex;gap:12px;margin-bottom:12px;align-items:center}.row>label:first-child{width:100px;color:#9e9e9e;white-space:nowrap}.row>input{flex:1;min-width:180px;background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:8px}.row .checklbl{flex:none;width:auto;display:flex;align-items:center;gap:4px;color:#9e9e9e;white-space:nowrap}.row .checklbl input{width:auto;margin:0}.relay-config{flex-wrap:wrap;border-top:1px solid #2d2d2d;padding-top:10px}.relay-config>input{flex:0 1 auto;min-width:90px;max-width:50%}.number-input{max-width:160px}.actions button{margin:0}button{padding:10px 14px;margin:4px;background:#1a3a5c;color:#4dabf7;border:1px solid #1e5a9e;font-weight:700}.save{background:#1b4332;color:#51cf66;border-color:#2d6a4f}.danger{background:#3d1515;color:#ff6b6b;border-color:#7a2020}.ok{color:#51cf66}.err{color:#ff6b6b}</style></head><body>" + page_header_html(session, true) + "<h1>Konfiguration</h1><div class=\"actions\"><button onclick=\"location.href='/'\">Zurueck</button><button class=\"save\" onclick=\"save()\">Speichern</button><button onclick=\"location.href='/admin'\">Benutzer/API</button><button onclick=\"location.href='/network'\">Network</button><button onclick=\"location.href='/scenes'\">Szenen</button><button class=\"danger\" onclick=\"location.href='/logout'\">Abmelden</button></div><div id=\"msg\"></div><div class=\"card\"><div class=\"row\"><label>Titel</label><input id=\"title\" maxlength=\"64\" value=\"" + html_escape(site_title) + "\"></div><div class=\"row\"><label>Ueberschrift</label><input id=\"subtitle\" maxlength=\"64\" value=\"" + html_escape(site_subtitle) + "\"></div><div class=\"row\"><label>Oeffentlich</label><input type=\"checkbox\" id=\"pub\" style=\"flex:none;width:auto;padding:0;margin:0;border:none;background:none\" " + std::string(public_access ? "checked" : "") + "></div><div class=\"row\"><label>Rueckmeldezeit</label><input class=\"number-input\" type=\"number\" id=\"fbtimeout\" min=\"10\" max=\"10000\" value=\"" + std::to_string(feedback_timeout_ms) + "\"><span>ms</span></div>" + rows + "</div><script>const conn=document.getElementById('conn');const msg=document.getElementById('msg');let lastSseActivity=0;let lastConnectAttempt=0;let es=null;let reconnectTimer=0;function markConn(ok){conn.textContent=ok?'Verbunden':'Getrennt';conn.className=ok?'ok':'err'}function noteSseActivity(){lastSseActivity=Date.now();markConn(true)}function scheduleReconnect(delay=1000){if(reconnectTimer)return;reconnectTimer=setTimeout(()=>{reconnectTimer=0;connectEvents()},delay)}function forceReconnect(){if(es){es.close();es=null}scheduleReconnect(0)}function connectEvents(){if(es)es.close();lastConnectAttempt=Date.now();es=new EventSource('/events');es.onopen=()=>{noteSseActivity()};es.onerror=()=>{markConn(false);if(es){es.close();es=null}scheduleReconnect()};es.addEventListener('ping',()=>{noteSseActivity()});es.onmessage=()=>{noteSseActivity()}}connectEvents();window.addEventListener('pagehide',()=>{if(es)es.close()});setInterval(()=>{const now=Date.now();const activeLink=lastSseActivity&&now-lastSseActivity<2500;markConn(!!activeLink);if(!activeLink&&now-lastConnectAttempt>=2500&&!reconnectTimer)forceReconnect()},1000);function save(){const names=[...document.querySelectorAll('input[data-idx]')].map((e,i)=>e.value.trim()||('Relais '+(i+1)));const bools=a=>[...document.querySelectorAll(a)].map(e=>e.checked);const timeout=Math.max(10,Math.min(10000,Number(document.getElementById('fbtimeout').value)||500));fetch('/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({names,act_low:bools('input[data-low]'),feedback_enabled:bools('input[data-fb]'),feedback_low:bools('input[data-fblow]'),feedback_timeout:timeout,title:document.getElementById('title').value,subtitle:document.getElementById('subtitle').value,public:document.getElementById('pub').checked})}).then(r=>r.json()).then(()=>{msg.textContent='OK gespeichert';msg.className='ok'}).catch(()=>{msg.textContent='Fehler';msg.className='err'})}</script></body></html>";
+  std::string html = "<!DOCTYPE html><html lang=\"de\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + html_escape(site_title) + " - Konfiguration</title><style>html,body{margin:0}body{box-sizing:border-box;font-family:'Segoe UI',sans-serif;background:#121212;color:#e0e0e0;min-height:100vh;padding:108px 24px 24px}" + page_header_css() + "h1{color:#4dabf7}.card{background:#1e1e1e;padding:24px;max-width:980px;border:1px solid #2d2d2d}.row{display:flex;gap:12px;margin-bottom:12px;align-items:center}.row>label:first-child{width:100px;color:#9e9e9e;white-space:nowrap}.row>input{flex:1;min-width:180px;background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:8px}.row .checklbl{flex:none;width:auto;display:flex;align-items:center;gap:4px;color:#9e9e9e;white-space:nowrap}.row .checklbl input{width:auto;margin:0}.relay-config{flex-wrap:wrap;border-top:1px solid #2d2d2d;padding-top:10px}.relay-config>input{flex:0 1 auto;min-width:90px;max-width:50%}.number-input{max-width:160px}" + std::string(led_css) + ".actions button{margin:0}button{padding:10px 14px;margin:4px;background:#1a3a5c;color:#4dabf7;border:1px solid #1e5a9e;font-weight:700}.save{background:#1b4332;color:#51cf66;border-color:#2d6a4f}.danger{background:#3d1515;color:#ff6b6b;border-color:#7a2020}.ok{color:#51cf66}.err{color:#ff6b6b}</style></head><body>" + page_header_html(session, true) + "<h1>Konfiguration</h1><div class=\"actions\"><button onclick=\"location.href='/'\">Zurueck</button><button class=\"save\" onclick=\"save()\">Speichern</button><button onclick=\"location.href='/admin'\">Benutzer/API</button><button onclick=\"location.href='/network'\">Network</button><button onclick=\"location.href='/scenes'\">Szenen</button><button class=\"danger\" onclick=\"location.href='/logout'\">Abmelden</button></div><div id=\"msg\"></div><div class=\"card\"><div class=\"row\"><label>Titel</label><input id=\"title\" maxlength=\"64\" value=\"" + html_escape(site_title) + "\"></div><div class=\"row\"><label>Ueberschrift</label><input id=\"subtitle\" maxlength=\"64\" value=\"" + html_escape(site_subtitle) + "\"></div><div class=\"row\"><label>Oeffentlich</label><input type=\"checkbox\" id=\"pub\" style=\"flex:none;width:auto;padding:0;margin:0;border:none;background:none\" " + std::string(public_access ? "checked" : "") + "></div><div class=\"row\"><label>" + std::string(time_label) + "</label><input class=\"number-input\" type=\"number\" id=\"fbtimeout\" min=\"" + time_min + "\" max=\"" + time_max + "\" value=\"" + std::to_string(feedback_timeout_ms) + "\"><span>ms</span></div>" + rows + "</div><script>const conn=document.getElementById('conn');const msg=document.getElementById('msg');let lastSseActivity=0;let lastConnectAttempt=0;let es=null;let reconnectTimer=0;function markConn(ok){conn.textContent=ok?'Verbunden':'Getrennt';conn.className=ok?'ok':'err'}function noteSseActivity(){lastSseActivity=Date.now();markConn(true)}function scheduleReconnect(delay=1000){if(reconnectTimer)return;reconnectTimer=setTimeout(()=>{reconnectTimer=0;connectEvents()},delay)}function forceReconnect(){if(es){es.close();es=null}scheduleReconnect(0)}function connectEvents(){if(es)es.close();lastConnectAttempt=Date.now();es=new EventSource('/events');es.onopen=()=>{noteSseActivity()};es.onerror=()=>{markConn(false);if(es){es.close();es=null}scheduleReconnect()};es.addEventListener('ping',()=>{noteSseActivity()});es.onmessage=()=>{noteSseActivity()}}connectEvents();window.addEventListener('pagehide',()=>{if(es)es.close()});setInterval(()=>{const now=Date.now();const activeLink=lastSseActivity&&now-lastSseActivity<2500;markConn(!!activeLink);if(!activeLink&&now-lastConnectAttempt>=2500&&!reconnectTimer)forceReconnect()},1000);function save(){const names=[...document.querySelectorAll('input[data-idx]')].map((e,i)=>e.value.trim()||('Relais '+(i+1)));const bools=a=>[...document.querySelectorAll(a)].map(e=>e.checked);const timeout=Math.max(" + time_min + ",Math.min(" + time_max + ",Number(document.getElementById('fbtimeout').value)||" + time_def + "));fetch('/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({names,act_low:bools('input[data-low]'),feedback_enabled:bools('input[data-fb]'),feedback_low:bools('input[data-fblow]'),feedback_timeout:timeout,title:document.getElementById('title').value,subtitle:document.getElementById('subtitle').value,public:document.getElementById('pub').checked})}).then(r=>r.json()).then(()=>{msg.textContent='OK gespeichert';msg.className='ok'}).catch(()=>{msg.textContent='Fehler';msg.className='err'})}" + std::string(led_js) + "</script></body></html>";
   return html;
 }
 
@@ -1601,8 +1671,15 @@ static void configure_feedback_inputs() {
   for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) {
     gpio_init(cfg::FEEDBACK_PINS[i]);
     gpio_set_dir(cfg::FEEDBACK_PINS[i], GPIO_IN);
+#ifdef INPUT_MODE_BUTTON
+    gpio_pull_up(cfg::FEEDBACK_PINS[i]);  // Taster schalten gegen GND
+    button_pressed[i] = false;
+    button_raw[i] = false;
+    button_since[i] = millis32();
+#else
     if (feedback_active_low[i]) gpio_pull_up(cfg::FEEDBACK_PINS[i]);
     else gpio_pull_down(cfg::FEEDBACK_PINS[i]);
+#endif
     feedback_pending[i] = false;
     feedback_error[i] = false;
     feedback_source_scene[i] = -1;
@@ -1636,8 +1713,8 @@ static void handle_config_post(uint8_t sn, const HttpRequest &req) {
     update_bool_array_from_json(req.body, "feedback_enabled", feedback_enabled);
     update_bool_array_from_json(req.body, "feedback_low", feedback_active_low);
     feedback_timeout_ms = std::clamp<uint32_t>(json_uint_value(req.body, "feedback_timeout", feedback_timeout_ms),
-                                                cfg::MIN_FEEDBACK_TIMEOUT_MS,
-                                                cfg::MAX_FEEDBACK_TIMEOUT_MS);
+                                                cfg::MIN_INPUT_TIME_MS,
+                                                cfg::MAX_INPUT_TIME_MS);
     std::string title = json_string_value(req.body, "title");
     std::string subtitle = json_string_value(req.body, "subtitle");
     if (!title.empty()) site_title = title.substr(0, 64);
@@ -2466,10 +2543,16 @@ int main() {
       g_ip_status_dirty = false;
       esp_link::notify_ip_status();
     }
+#ifdef INPUT_MODE_BUTTON
+    if (service_buttons()) {
+      g_sse_dirty = true;
+    }
+#else
     if (service_relay_feedback()) {
       esp_link_state_dirty = true;
       g_sse_dirty = true;
     }
+#endif
     sleep_ms(1);
   }
 }

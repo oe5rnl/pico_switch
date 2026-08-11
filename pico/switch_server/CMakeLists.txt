@@ -72,6 +72,21 @@ target_link_libraries(switch_w6300_relay PRIVATE
 # muss multicore-sicher sein (Spinlock um den Heap).
 target_compile_definitions(switch_w6300_relay PRIVATE PICO_USE_MALLOC_MUTEX=1)
 
+# ---- Eingangsmodus: Taster oder Relais-Rueckmeldung ----------------------
+# -DINPUT_MODE=taster : GP10-14/26-28 als entprellte Taster (Toggle je Relais)
+# -DINPUT_MODE=rueckm : GP10-14/26-28 als physische Relais-Rueckmeldung
+if(NOT DEFINED INPUT_MODE)
+    set(INPUT_MODE "taster")
+endif()
+if(INPUT_MODE STREQUAL "taster")
+    target_compile_definitions(switch_w6300_relay PRIVATE INPUT_MODE_BUTTON=1)
+    message(STATUS "Eingangsmodus (INPUT_MODE): taster (GP10-28 = entprellte Taster)")
+elseif(INPUT_MODE STREQUAL "rueckm")
+    message(STATUS "Eingangsmodus (INPUT_MODE): rueckm (GP10-28 = Relais-Rueckmeldung)")
+else()
+    message(FATAL_ERROR "INPUT_MODE muss 'taster' oder 'rueckm' sein (war: ${INPUT_MODE})")
+endif()
+
 pico_enable_stdio_usb(switch_w6300_relay 1)
 pico_enable_stdio_uart(switch_w6300_relay 0)
 pico_add_extra_outputs(switch_w6300_relay)

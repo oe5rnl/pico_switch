@@ -9,6 +9,7 @@ LOCAL_COPY="${SCRIPT_DIR}/switch_w6300_relay_native.uf2"
 WIZNET_PICO_C_PATH="${WIZNET_PICO_C_PATH:-${SCRIPT_DIR}/WIZnet-PICO-C}"
 WIZNET_PICO_C_URL="${WIZNET_PICO_C_URL:-https://github.com/WIZnet-ioNIC/WIZnet-PICO-C.git}"
 JOBS="${JOBS:-$(nproc)}"
+INPUT_MODE="${INPUT_MODE:-taster}"
 
 CLEAN=0
 POSITIONAL=()
@@ -18,17 +19,23 @@ while [[ $# -gt 0 ]]; do
       CLEAN=1
       shift
       ;;
+    -m|--mode)
+      INPUT_MODE="${2:-}"
+      shift 2
+      ;;
     -h|--help)
       cat <<EOF
-Usage: $(basename "$0") [-c|--clean] [UPLOAD_DIR]
+Usage: $(basename "$0") [-c|--clean] [-m|--mode taster|rueckm] [UPLOAD_DIR]
 
 Options:
-  -c, --clean   Build-Verzeichnis vor dem Bau loeschen (Clean Build)
-  -h, --help    Diese Hilfe anzeigen
+  -c, --clean          Build-Verzeichnis vor dem Bau loeschen (Clean Build)
+  -m, --mode MODE      Eingangsmodus: taster (Default) oder rueckm
+  -h, --help           Diese Hilfe anzeigen
 
 UPLOAD_DIR  Zielverzeichnis fuer die UF2-Datei (Default: /media/\$USER/RP2350)
 
 Umgebung:
+  INPUT_MODE          Eingangsmodus (taster|rueckm), von -m/--mode ueberschrieben
   WIZNET_PICO_C_PATH  Pfad zum WIZnet-PICO-C-Checkout (Default: ${SCRIPT_DIR}/WIZnet-PICO-C)
   WIZNET_PICO_C_URL   Git-URL fuer automatisches Klonen
 EOF
@@ -78,8 +85,13 @@ if [[ "${CLEAN}" -eq 1 ]]; then
   rm -rf "${BUILD_DIR}"
 fi
 
-echo "==> CMake configure"
-cmake -S "${PROJECT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release -DWIZNET_PICO_C_PATH="${WIZNET_PICO_C_PATH}"
+if [[ "${INPUT_MODE}" != "taster" && "${INPUT_MODE}" != "rueckm" ]]; then
+  echo "Fehler: ungueltiger INPUT_MODE '${INPUT_MODE}' (erlaubt: taster, rueckm)" >&2
+  exit 1
+fi
+
+echo "==> CMake configure (INPUT_MODE=${INPUT_MODE})"
+cmake -S "${PROJECT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release -DWIZNET_PICO_C_PATH="${WIZNET_PICO_C_PATH}" -DINPUT_MODE="${INPUT_MODE}"
 
 echo "==> Make build (${JOBS} jobs)"
 make -C "${BUILD_DIR}" -j"${JOBS}"
