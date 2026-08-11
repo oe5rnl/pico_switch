@@ -72,6 +72,9 @@ static lv_obj_t * switch_lbls[SWITCH_COUNT]  = { nullptr };
 static lv_obj_t * warn_dots[SWITCH_COUNT]    = { nullptr };
 static lv_obj_t * title_label = nullptr;
 static lv_obj_t * ip_label    = nullptr;
+static lv_obj_t * splash_label = nullptr;  // Startanzeige "sw_switch" statt Default-Buttons
+static lv_obj_t * splash_ver   = nullptr;  // Firmware-Version unter der Startanzeige
+static lv_obj_t * splash_credit = nullptr; // Autorenzeile unter der Firmware-Version
 static bool display_config_loaded = false;
 static uint32_t next_display_query_ms = 0;
 static String pico_rx_line;
@@ -81,6 +84,7 @@ static uint32_t last_pico_pong_ms = 0;
 
 static void update_switch_visual(int idx);
 static void refresh_all_buttons();
+static void set_splash_visible(bool visible);
 
 static bool parse_error_line(const String &line)
 {
@@ -330,6 +334,7 @@ static void update_pico_heartbeat()
         display_config_loaded = false;
         next_display_query_ms = 0;
         set_title_text("wait for init");
+        set_splash_visible(true);
     }
 }
 
@@ -469,8 +474,30 @@ static void apply_button_layout()
     }
 }
 
+static void set_splash_visible(bool visible)
+{
+    if (splash_label) {
+        if (visible) lv_obj_clear_flag(splash_label, LV_OBJ_FLAG_HIDDEN);
+        else         lv_obj_add_flag(splash_label, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (splash_ver) {
+        if (visible) lv_obj_clear_flag(splash_ver, LV_OBJ_FLAG_HIDDEN);
+        else         lv_obj_add_flag(splash_ver, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (splash_credit) {
+        if (visible) lv_obj_clear_flag(splash_credit, LV_OBJ_FLAG_HIDDEN);
+        else         lv_obj_add_flag(splash_credit, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (visible) {  // Buttons ausblenden, solange die Startanzeige laeuft
+        for (int i = 0; i < SWITCH_COUNT; i++) {
+            if (switch_btns[i]) lv_obj_add_flag(switch_btns[i], LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+}
+
 static void refresh_all_buttons()
 {
+    set_splash_visible(false);
     apply_button_layout();
     for(int i = 0; i < SWITCH_COUNT; i++) {
         update_switch_visual(i);
@@ -573,6 +600,32 @@ static void create_ui(void)
 
         update_switch_visual(i);
     }
+
+    /* Startanzeige: "pico_switch",
+       bis der Pico die Schalter-/Szenendaten sendet. */
+    lv_obj_t * sp = lv_label_create(scr);
+    lv_label_set_text(sp, "pico_switch");
+    lv_obj_set_style_text_font(sp, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(sp, lv_color_hex(0xe0e0e0), 0);
+    lv_obj_align(sp, LV_ALIGN_CENTER, 0, -10);
+    splash_label = sp;
+
+    lv_obj_t * spv = lv_label_create(scr);
+    lv_label_set_text(spv, "FW " ESP_FW_VERSION);
+    lv_obj_set_style_text_font(spv, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(spv, lv_color_hex(0x808080), 0);
+    lv_obj_align(spv, LV_ALIGN_CENTER, 0, 20);
+    splash_ver = spv;
+
+    lv_obj_t * spc = lv_label_create(scr);
+    lv_label_set_text(spc, "OE5RNL & OE5NVL");
+    lv_obj_set_style_text_font(spc, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(spc, lv_color_hex(0x808080), 0);
+    lv_obj_align(spc, LV_ALIGN_CENTER, 0, 40);
+    splash_credit = spc;
+
+
+    set_splash_visible(true);
 }
 
 // ----------------------------
