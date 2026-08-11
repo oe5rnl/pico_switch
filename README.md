@@ -21,6 +21,7 @@ stellt das lokale Touch-Terminal bereit (8 Tasten, ON/OFF-Statusfarben, Szenen-A
 ### pico/switch_server/
 enthaelt die eigentliche Relais- und Netzwerk-Firmware und implementiert:  
 - Einzelrelaisstuerung und Szenen
+- Eingangsmodus per Compilerschalter `INPUT_MODE` (Default `taster`): entweder physische **Rückmeldeüberwachung** (`rueckm`) oder entprellte **Taster** an GP10–28 (`taster`), die je ein Relais toggeln (parallel zu Web/Display; im Szenenmodus lösen sie Szenen aus)
 - Rückmeldeüberwachung: Prüfung ob Relais geschaltet haben
 - HTTP-UI Werbserver,
 - REST API-Server mit API Token
@@ -147,6 +148,7 @@ gemountete `RP2350`-Laufwerk):
 cd pico
 ./upload.sh                    # Build + Upload aufs BOOTSEL-Laufwerk
 ./upload.sh -c                 # Clean-Build erzwingen
+./upload.sh -m rueckm          # Eingangsmodus Rueckmeldung (Default: taster)
 ./upload.sh /pfad/zum/RP2350   # alternatives Ziel-Laufwerk
 ```
 

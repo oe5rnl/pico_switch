@@ -49,9 +49,10 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
 | `RELAY_COUNT` | 8 | Anzahl der Relais/Kanäle |
 | `SCENE_COUNT` | 8 | Anzahl konfigurierbarer Szenen |
 | `RELAY_PINS` | `{2,3,4,5,6,7,8,9}` | GPIO-Pins der Relais |
-| `FEEDBACK_PINS` | `{10,11,12,13,14,26,27,28}` | GPIO-Eingänge der physischen Rückmeldungen |
+| `FEEDBACK_PINS` | `{10,11,12,13,14,26,27,28}` | GPIO-Eingänge: Rückmeldungen **oder** Taster (je nach `INPUT_MODE`, siehe 2.9) |
 | `RELAY_ACTIVE_LOW` | `false` | Schaltlogik (HIGH = aktiv) |
-| `DEFAULT_FEEDBACK_TIMEOUT_MS` | 500 | Standardfrist für eine Rückmeldung |
+| `DEFAULT_FEEDBACK_TIMEOUT_MS` | 500 | Standardfrist für eine Rückmeldung (Modus `rueckm`) |
+| `DEFAULT_INPUT_TIME_MS` | 25 (Taster) / 500 (Rückm.) | Default für Entprell-/Rückmeldezeit je Eingangsmodus |
 | `HTTP_PORT` | 80 | Webserver-Port |
 | `HTTP_SOCKET_COUNT` | 8 | Parallele W6300-Sockets |
 | `DHCP_SELECT_PIN` | 15 | HIGH/offen → DHCP, LOW → statische IP |
@@ -85,12 +86,12 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
 | GET | `/`, `/index.html` | Haupt-UI |
 | GET/POST | `/login`, `/logout` | Authentifizierung |
 | GET/POST | `/password` | Passwort ändern |
-| GET/POST | `/config` | Titel/Namen/`public_access`, Ausgangspolarität (Low aktiv), Rückmeldung + Rückmeldezeit; Namensfelder zeigen die zugehörige Ausgangs-GPIO (z. B. „Relais 1 (GP2)") |
+| GET/POST | `/config` | Titel/Namen/`public_access`, Ausgangspolarität (Low aktiv), Rückmeldung + Rückmeldezeit; Namensfelder zeigen die zugehörige Ausgangs-GPIO (z. B. „Relais 1 (GP2)"). Im Taster-Modus (2.9) entfallen die Felder „Rückmeldung"/„Rückm. LOW"; stattdessen erscheinen „Taster GPxx" + Pseudo-LED und „Taster-Entprellzeit" |
 | GET/POST | `/network` | Statische IP-Einstellungen |
 | GET/POST | `/admin` | Benutzer-/API-Key-Verwaltung |
 | GET | `/me` | Aktueller Benutzer |
 | GET | `/active_users` | Aktive Sessions/Gäste |
-| GET | `/state` | Relais-Zustand (JSON, inkl. `scene_mode`) |
+| GET | `/state` | Relais-Zustand (JSON, inkl. `scene_mode`; im Taster-Modus zusätzlich `buttons`) |
 | GET/POST | `/scenes` | Szenen-Modus + Szenen konfigurieren (Admin) |
 | GET | `/events` | Server-Sent Events (Live-Status) |
 | POST | `/relay/<idx>/<on\|off\|toggle>` | Relais schalten |
@@ -200,6 +201,42 @@ Reihenfolge bewusst so gewählt, damit das Display **unabhängig vom DHCP** frü
    `service_socket()×8` / `keepalive_sse()` / `service_network_link()` plus Flash-/
    SSE-Aufträge. Der Boot des Displays hängt damit **nicht** mehr am DHCP.
 
+### 2.9 Eingangsmodus: Taster oder Rückmeldung (Compilerschalter)
+
+Die Funktion der Eingänge `FEEDBACK_PINS` (GP10/11/12/13/14/26/27/28) ist ein
+**Kompilierzeit**-Schalter — es wird immer nur *ein* Modus in die Firmware gebaut:
+
+- **`INPUT_MODE=rueckm`** — klassische physische Relais-Rückmeldung
+  (`service_relay_feedback()`), je Kanal aktivier-/polarisierbar, gemeinsame
+  Rückmeldezeit.
+- **`INPUT_MODE=taster`** (**Default**) — die Eingänge sind entprellte Taster.
+  Aktiviert das Define `INPUT_MODE_BUTTON`.
+
+Umschaltung:
+
+- CMake: `-DINPUT_MODE=taster` bzw. `-DINPUT_MODE=rueckm`
+  (`pico/switch_server/CMakeLists.txt`, Default `taster`; ungültiger Wert → Fehler).
+- Upload-Skript: `pico/upload.sh -m|--mode taster|rueckm` (Default `taster`),
+  auch per Umgebungsvariable `INPUT_MODE`.
+
+Verhalten im Taster-Modus (`INPUT_MODE_BUTTON`):
+
+- Alle Eingänge fix mit **Pull-Up** (`configure_feedback_inputs()`), Taster schaltet
+  gegen GND (gedrückt = LOW).
+- **Entprellung** über den gemeinsamen Wert `feedback_timeout_ms` (Feld
+  „Taster-Entprellzeit", Default `DEFAULT_INPUT_TIME_MS = 25 ms`, Bereich
+  `MIN/MAX_INPUT_TIME_MS = 5…2000 ms`).
+- `service_buttons()` läuft auf **core0** (parallel zu den Web-/ESP-Buttons). Eine
+  steigende Flanke (Druck) **toggelt** das zugehörige Relais (`set_relay()`); im
+  Szenen-Modus löst sie stattdessen die Szene `i` aus (`activate_scene()`).
+- `state_json()` liefert zusätzlich das Array `buttons` (entprellter Tasterzustand);
+  die Konfig-Seite zeigt je Kanal „Taster GPxx" + eine **Pseudo-LED**, die per
+  `/state`-Polling (400 ms) den gedrückten Taster anzeigt.
+- Die **ESP-Anzeige bleibt unverändert** (kein Taster-spezifisches Protokoll).
+- **Persistenz:** gleiche `PersistedConfig`-Struktur wie im Rückmeldemodus; die
+  Entprellzeit nutzt das vorhandene `feedback_timeout_ms`-Feld → **keine**
+  Versionserhöhung. Die `feedback_*`-Felder sind im Taster-Modus ungenutzt.
+
 ---
 
 ## 3. ESP32-CYD-Display (`esp32/src/main.cpp`)
@@ -283,11 +320,13 @@ Hinweise:
 cd pico
 ./upload.sh              # baut UF2 und kopiert es aufs BOOTSEL-Laufwerk
 # ./upload.sh -c         # Clean-Build erzwingen
+# ./upload.sh -m rueckm  # Eingangsmodus Rückmeldung statt Taster (Default: taster)
 # ./upload.sh /pfad/zum/RP2350   # alternatives Ziel-Laufwerk
 ```
 
 - Pico beim Flashen mit gedrückter **BOOTSEL**-Taste anstecken
   (Ziel-Laufwerk `/media/<user>/RP2350`).
+- Eingangsmodus (Taster/Rückmeldung) per `-m|--mode` bzw. `-DINPUT_MODE=` (siehe 2.9).
 - Targets: `switch_w6300_relay` (Produktiv), `uart_loopback_test` (Diagnose).
 - Serielles Debug/CDC: `/dev/ttyACM0`, 115200.
 

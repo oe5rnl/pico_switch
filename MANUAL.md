@@ -126,6 +126,19 @@ Im Szenenmodus zeigt das Display nur aktivierte Szenen. Je nach Anzahl werden bi
 
 Im Szenenmodus können einzelne Relais nicht am Display geschaltet werden. Die direkte Relaisbedienung bleibt jedoch auf der Webseite verfügbar. Auch in Szenennamen erzeugt `|` einen Zeilenumbruch auf dem Display.
 
+### 4.4 Externe Taster (nur im Taster-Modus)
+
+Ist die Firmware im **Taster-Modus** erstellt (Compilerschalter `INPUT_MODE=taster`, Standard), dienen die acht Eingänge GP10–GP28 als Anschluss für mechanische Taster. Ein Taster wird zwischen dem jeweiligen Eingang und GND angeschlossen; die interne Pull-Up-Beschaltung ist fest aktiv.
+
+- Jeder Taster ist einem Relais fest zugeordnet (Taster an GP10 → Relais 1 usw.).
+- Ein Tastendruck **schaltet um** (Toggle): einmal drücken schaltet ein, erneutes Drücken schaltet aus.
+- Ist der **Szenenmodus** aktiv, löst der Taster stattdessen die zugehörige Szene aus (Taster 1 → Szene 1 usw.), sofern diese aktiviert ist.
+- Die Taster arbeiten **parallel** zu Webseite und Touchdisplay; alle Bedienwege bleiben gleichzeitig nutzbar.
+- Die Eingänge sind **entprellt**. Die gemeinsame **Taster-Entprellzeit** wird auf der Konfigurationsseite eingestellt (Standard 25 ms, zulässig 5 bis 2000 ms).
+- Auf der Konfigurationsseite zeigt eine kleine **LED** je Kanal, ob der zugehörige Taster gerade gedrückt ist (zur Verdrahtungskontrolle).
+
+> **Hinweis:** In diesem Modus steht die physische Relais-Rückmeldung (Abschnitt 5.2) nicht zur Verfügung, da dieselben Eingänge als Taster verwendet werden. Wird die Rückmeldung benötigt, muss die Firmware im Modus `rueckm` erstellt werden.
+
 ## 5. Konfiguration durch Administratoren
 
 Die administrativen Seiten sind über **Konfig** erreichbar und erfordern ein Konto mit der Rolle `admin`. Änderungen werden erst mit **Speichern** übernommen.
@@ -142,6 +155,15 @@ Auf der Seite **Konfiguration** können folgende Werte geändert werden:
 - **Rückmeldung:** aktiviert die Prüfung des zugehörigen physischen Rückmeldeeingangs.
 - **Rückm. LOW:** legt fest, dass der aktive Rückmeldepegel LOW ist.
 - **Rückmeldezeit:** Zeit, innerhalb der die physische Rückmeldung nach einem Schaltvorgang eintreffen muss; zulässig sind 10 bis 10000 ms.
+
+> **Eingangsmodus (Taster oder Rückmeldung):** Die Funktion der acht Eingänge
+> (GP10–GP28) wird beim Erstellen der Firmware festgelegt (Compilerschalter
+> `INPUT_MODE`, Standard: Taster). Im **Taster-Modus** entfallen die Felder
+> **Rückmeldung** und **Rückm. LOW**; jede Relaiszeile zeigt stattdessen den Text
+> **„Taster GPxx"** und eine kleine **LED**, die aufleuchtet, solange der Taster
+> gedrückt ist. Statt **Rückmeldezeit** erscheint dann **Taster-Entprellzeit**
+> (gemeinsam für alle Taster, Standard 25 ms, zulässig 5 bis 2000 ms). Näheres
+> siehe Abschnitt 4.4.
 
 > **Wichtig:** Eine Änderung von **Low aktiv** wird sofort auf den Relaisausgang angewendet. Vor dem Speichern muss sichergestellt sein, dass die Einstellung zur angeschlossenen Relaisplatine passt.
 
@@ -218,7 +240,7 @@ Gespeicherte Netzwerkwerte werden erst beim nächsten Start im statischen Modus 
 | GP0 | UART0 TX zum Display (Pico -> ESP32 GPIO3 RX) |
 | GP1 | UART0 RX vom Display (Pico <- ESP32 GPIO1 TX) |
 | GP2 bis GP9 | Relaisausgaenge 1 bis 8 |
-| GP10, GP11, GP12, GP13, GP14, GP26, GP27, GP28 | Rueckmeldeeingaenge fuer Relais 1 bis 8 |
+| GP10, GP11, GP12, GP13, GP14, GP26, GP27, GP28 | Rueckmeldeeingaenge ODER Taster-Eingaenge fuer Relais 1 bis 8 (je nach Compilerschalter INPUT_MODE) |
 | GP15 | Netzwerkmodus-Bootstrap: HIGH/offen = DHCP, LOW = statische IP |
 | GP16 bis GP22 | Reserviert fuer W6300 (QSPI LAN-Interface) |
 
