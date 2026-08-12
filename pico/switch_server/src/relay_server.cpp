@@ -2219,7 +2219,7 @@ static std::string page_header_html(const Session *session, bool show_conn) {
   if (show_user_list) {
     html += "<script>window.__currentUser=\"" + json_escape(current_session_username(session)) + "\";function __renderHeaderUsers(users){const el=document.getElementById('other-users');if(!el)return;if(users===null){el.style.display='none';return}el.style.display='';const cur=window.__currentUser||'-';const list=(users||[]).filter(u=>!cur||cur==='-'||u.username!==cur);if(!list.length){el.textContent='Andere Benutzer: -';el.title='Keine anderen aktiven Anmeldungen';return}const text=list.map(u=>u.username+' ('+u.remaining+' min)').join(', ');el.textContent='Andere Benutzer: '+text;el.title=text}function __pollHeaderUsers(){fetch('/active_users',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(d=>{if(d)__renderHeaderUsers(d.active_users)}).catch(()=>{})}setInterval(__pollHeaderUsers,5000);__pollHeaderUsers();</script>";
   }
-  html += "<div style=\"position:fixed;bottom:4px;left:8px;color:#484f58;font-size:.7rem;z-index:-1\">Designed and built by OE5RNL, OE5NVL and Claude &nbsp;&nbsp;Firmware pico: " FW_VERSION " &nbsp; esp32: " + html_escape(esp_fw_version) + "</div>";
+  html += "<div id=\"fwfoot\" style=\"width:100%;box-sizing:border-box;margin-top:auto;padding:16px 8px 4px;color:#484f58;font-size:.7rem;user-select:text;-webkit-user-select:text\">Designed and built by OE5RNL, OE5NVL and Claude &nbsp;&nbsp;Firmware pico: " FW_VERSION " &nbsp; esp32: " + html_escape(esp_fw_version) + "</div><script>document.addEventListener('DOMContentLoaded',function(){var f=document.getElementById('fwfoot');if(f)document.body.appendChild(f);});</script>";
   return html;
 }
 

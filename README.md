@@ -249,4 +249,31 @@ Die Toolchains und Bibliotheken (LVGL, TFT_eSPI, XPT2046) laedt PlatformIO beim
 ersten Build automatisch. Falls `pio` nicht gefunden wird:
 `export PATH="$HOME/.local/bin:$PATH"`.
 
+
+## Vom Versionsstring zum GitHub-Stand
+
+
+**Aufbau des Formats** `xx.xxxxx.g<hash>[-dirty][+N]`:
+
+| Teil | Beispiel | Bedeutung |
+|---|---|---|
+| `05` | Hauptversion | manuell (`FW_MAJOR`) |
+| `00019` | 19 | Git-Commit-Count |
+| `g71704ee` | Hash `71704ee` | kurzer Commit-Hash |
+| `-dirty` | Flag | Build aus uncommittetem Arbeitsstand |
+
+- Zum Commit: `https://github.com/<owner>/<repo>/commit/71704ee`   
+
+  `git show 71704ee`  
+  `git checkout 71704ee`  
+  
+- `-dirty` bedeutet: exakter Build-Stand liegt in **keinem** Commit; `71704ee` ist nur
+  die nächstliegende Basis.
+
+
+ - Rueckverfolgung zu GitHub: Der Teil `g<hash>` ist der kurze Git-Commit-Hash (das fuehrende `g` = „git"). Beispiel `05.00019.g71704ee` → Commit `71704ee`. Auf GitHub oeffnen via `https://github.com/<owner>/<repo>/commit/71704ee` oder lokal mit `git show 71704ee` / `git checkout 71704ee`. Den Remote-Namen `<owner>/<repo>` liefert `git remote -v`. **Achtung `-dirty`:** Diese Firmware wurde aus einem Arbeitsstand mit nicht eingecheckten Aenderungen gebaut; der genannte Commit ist dann nur die naechstliegende Basis und liegt nicht 1:1 auf GitHub. Nur Versionen **ohne** `-dirty` entsprechen exakt dem verlinkten Commit.
+  - **Marker `+N`** (z. B. `05.00019.g71704ee+2`): `N` ist die Anzahl der Commits, die der lokale Build dem konfigurierten Upstream (GitHub) **voraus** ist — also lokal committet, aber noch **nicht gepusht** (`git rev-list --count @{u}..HEAD`). Der Hash `g71704ee` liegt dann noch **nicht** auf GitHub; dort steht der Stand `N` Commits davor. Nach `git push` verschwindet das `+N` und der Hash entspricht exakt dem Remote-Stand. Der Marker erscheint nur bei konfiguriertem Upstream (Tracking-Branch).
+
+
+
 Projekt gebaut von OE5RNL, OE5NVL und Claude
