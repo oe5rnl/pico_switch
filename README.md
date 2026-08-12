@@ -255,6 +255,11 @@ ersten Build automatisch. Falls `pio` nicht gefunden wird:
 
 **Aufbau des Versions-Formats** `xx.xxxxx.g<hash>[-dirty][+N]`:
 
+Beispiel:
+
+```
+05.00019.g71704ee-dirty
+```
 | Teil | Beispiel | Bedeutung |
 |---|---|---|
 | `05` | Hauptversion | manuell in CMakeLists.txt (`FW_MAJOR`) |
