@@ -33,6 +33,7 @@ compile_commands.json
 *.dylib
 *.dll
 *.exe
+*.uf2
 
 
 # Project build directories
