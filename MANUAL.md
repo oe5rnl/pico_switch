@@ -9,7 +9,7 @@
 
 Änderungen werden zwischen Webseite, Pico und Display automatisch übertragen. Die zuletzt gespeicherten Relaiszustände und Einstellungen bleiben nach einem Neustart erhalten.
 
-> **Achtung:** Abhängig von der angeschlossenen Anlage können Relais, Netzspannung oder andere gefährliche Lasten schalten. Änderungen an Verkabelung, Ausgangspolarität und Rückmeldeeingängen dürfen nur von fachkundigen Personen durchgeführt werden. Das System arbeitet mit 3,3V Spannung an den Ein/Ausgängen des ESP und Pico. Diese Spannungen darf nicht überschritten werden.
+> **Achtung:** Abhängig von der angeschlossenen Anlage können Relais Netzspannung oder andere gefährliche Lasten schalten. Änderungen an Verkabelung, Ausgangspolarität und Rückmeldeeingängen dürfen nur von fachkundigen Personen durchgeführt werden. Das System arbeitet mit 3,3 V an den Ein- und Ausgängen des ESP32 und des Pico. Diese Spannung darf nicht überschritten werden.
 
 ## 2. Schnellstart
 
@@ -37,24 +37,24 @@ Die Kopfzeile enthält:
 - **Login** oder den Namen des angemeldeten Benutzers,
 - den Status **Verbunden** oder **Getrennt**. **Verbunden** bedeutet, dass die Webseite laufend Statusmeldungen vom Pico erhält. Bei **Getrennt** sollte die Netzwerkverbindung geprüft und die Seite gegebenenfalls neu geladen werden.  
 
-- Anzeige „Andere Benutzer:"
-Im fixierten Seitenkopf jeder Web-Seite blendet die Pico-Oberflaeche eine Statuszeile
+- Anzeige „Andere Benutzer:":
+Im fixierten Seitenkopf jeder Webseite blendet die Pico-Oberfläche eine Statuszeile
 mit dem Label „Andere Benutzer:" ein. Sie zeigt, welche **weiteren** Benutzer gerade
 aktiv angemeldet sind – die eigene Anmeldung wird dabei nie aufgelistet.
 
- Pro aktivem Benutzer wird Name und verbleibende Session-Restzeit in
+ Pro aktivem Benutzer werden der Name und die verbleibende Sitzungsdauer in
  Minuten dargestellt, z. B. `Andere Benutzer: admin (30 min), gast (12 min)`. 
 
  **Keine weiteren Benutzer:** Ist niemand sonst angemeldet, erscheint `Andere Benutzer: -` (Tooltip: „Keine anderen aktiven Anmeldungen").  
 
  **Sichtbarkeit des Feldes:** Die Zeile wird nur angezeigt, wenn der Betrachter selbst angemeldet
-  ist oder der oeffentliche Zugriff (`public_access`) aktiviert ist. Anonyme Besucher
-  ohne oeffentlichen Zugriff sehen die Zeile nicht.  
+  ist oder der öffentliche Zugriff (`public_access`) aktiviert ist. Anonyme Besucher
+  ohne öffentlichen Zugriff sehen die Zeile nicht.
 
   **Live-Aktualisierung:** Der Browser fragt alle 5 Sekunden `/active_users` ab und
   aktualisiert die Liste sowie die Restzeiten automatisch, ohne Neuladen der Seite.  
 
-So ist jederzeit erkennbar, ob gerade jemand anderes das System bedienen koennte.
+So ist jederzeit erkennbar, ob gerade jemand anderes das System bedienen könnte.
 
 
 
@@ -229,7 +229,7 @@ Ob beim Start DHCP oder die statische Konfiguration verwendet wird, bestimmt der
 - GP15 HIGH oder offen: DHCP,
 - GP15 LOW: statische Konfiguration.
 
-Gespeicherte Netzwerkwerte werden erst beim nächsten Start im statischen Modus wirksam. Falsche Werte können die Webseite unerreichbar machen. Falls dieser Fall eintritt -> über GP15 auf DHCP schalten. Vor einer Änderung sollten IP-Adresse, Subnetzmaske und Gateway mit der zuständigen Netzwerkadministration abgestimmt werden.
+Gespeicherte Netzwerkwerte werden erst beim nächsten Start im statischen Modus wirksam. Falsche Werte können die Webseite unerreichbar machen. Falls dieser Fall eintritt, über GP15 auf DHCP schalten. Vor einer Änderung sollten IP-Adresse, Subnetzmaske und Gateway mit der zuständigen Netzwerkadministration abgestimmt werden.
 
 ## 6. GPIO-Belegung
 
@@ -239,10 +239,10 @@ Gespeicherte Netzwerkwerte werden erst beim nächsten Start im statischen Modus 
 |---|---|
 | GP0 | UART0 TX zum Display (Pico -> ESP32 GPIO3 RX) |
 | GP1 | UART0 RX vom Display (Pico <- ESP32 GPIO1 TX) |
-| GP2 bis GP9 | Relaisausgaenge 1 bis 8 |
-| GP10, GP11, GP12, GP13, GP14, GP26, GP27, GP28 | Rueckmeldeeingaenge ODER Taster-Eingaenge fuer Relais 1 bis 8 (je nach Compilerschalter INPUT_MODE) |
+| GP2 bis GP9 | Relaisausgänge 1 bis 8 |
+| GP10, GP11, GP12, GP13, GP14, GP26, GP27, GP28 | Rückmeldeeingänge ODER Taster-Eingänge für Relais 1 bis 8 (je nach Compilerschalter `INPUT_MODE`) |
 | GP15 | Netzwerkmodus-Bootstrap: HIGH/offen = DHCP, LOW = statische IP |
-| GP16 bis GP22 | Reserviert fuer W6300 (QSPI LAN-Interface) |
+| GP16 bis GP22 | Reserviert für W6300 (QSPI-LAN-Interface) |
 
 ### 6.2 ESP32-CYD Display
 
@@ -255,7 +255,7 @@ Hinweise:
 
 - UART ist 3,3 V Logik und muss gekreuzt verdrahtet werden (TX auf RX).
 - GND von Pico und Display muss verbunden sein.
-- GP16 bis GP22 am Pico nicht fuer eigene Verdrahtung nutzen, da diese Pins fuer den W6300 benoetigt werden.
+- GP16 bis GP22 am Pico nicht für eigene Verdrahtung nutzen, da diese Pins für den W6300 benötigt werden.
 
 ## 7. Fehlerbehebung
 
