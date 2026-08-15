@@ -11,14 +11,40 @@ Dieses Repository enthält zwei Module für eine 8-Kanal-Relaissteuerung:
 
 ## Systemüberblick: ESP32-Terminal + Pico-Implementierung
 
-Die beiden Teile haben klar getrennte Rollen und werden als Frontend/Backend-Setup genutzt:
+<img src="docs/pico-display-gpio.svg" alt="Verdrahtung von Display, Pico, Relais und Rückmeldungen" width="78.125%">
+
+### Verkabelung zwischen Display und Pico
+
+Die Kommunikation zwischen dem ESP32-Displayterminal und der Pico-Firmware läuft über UART mit 115200 Baud.
+
+GPIO-Belegung:
+
+- ESP32-Terminal: UART0 (`GPIO1` = TX, `GPIO3` = RX)
+- Pico-Firmware: UART0 (`GP0` = TX, `GP1` = RX)
+
+Verdrahtung (gekreuzt, TX auf RX):
+
+| ESP32-CYD | Pico 2 (RP2350) | Zweck |
+|---|---|---|
+| GPIO1 (TX) | GP1 (RX) | ESP32 sendet Schaltbefehle zum Pico |
+| GPIO3 (RX) | GP0 (TX) | Pico sendet Status/Antworten zum ESP32 |
+| GND | GND | Gemeinsame Masse |
+
+Wichtige Hinweise:
+
+- Beide Boards arbeiten mit 3,3-V-Logikpegeln (keinen 5-V-UART anschließen).
+- TX und RX müssen immer gekreuzt verbunden sein.
+- Die USB-Verbindungen der Boards bleiben zusätzlich für Stromversorgung, Flashen und Debugging nutzbar.
+- Verwendetes Textprotokoll auf der Leitung: z. B. `SW1:ON`, `SW1:OFF`, `SCENE1:GO`, `GET DISPLAY`, `VER:<version>`, `PING`/`PONG`. Das vollständige Protokoll ist in `MANUAL.md` und `CLAUDE.md` beschrieben.
 
 ### esp32/
+
 Stellt das lokale Touch-Terminal bereit (8 Tasten, ON/OFF-Statusfarben, Szenenansicht, Rückmeldefehleranzeige).
 - Bei jeder Bedienung sendet das ESP32-Terminal einen zeilenbasierten Befehl (`SWn:ON`/`SWn:OFF` bzw. `SCENEn:GO`) über UART an den Pico.
 - Im Szenenmodus erscheint auf der aktiven Szenen-Taste ein roter Punkt, sobald ein Relais direkt (nicht über eine Szene) geschaltet wurde. Der Punkt erlischt bei der nächsten Szenenaktivierung.
 
 ### pico/switch_server/
+
 Enthält die eigentliche Relais- und Netzwerk-Firmware und implementiert:
 - Einzelrelaissteuerung und Szenen
 - Eingangsmodus per Compilerschalter `INPUT_MODE` (Default `taster`): entweder physische **Rückmeldeüberwachung** (`rueckm`) oder entprellte **Taster** an GP10–28 (`taster`), die je ein Relais toggeln (parallel zu Web/Display; im Szenenmodus lösen sie Szenen aus)
@@ -61,33 +87,6 @@ gehalten), Aufträge laufen über wenige `volatile`-Flags zwischen den Kernen
 läuft nur auf core1 über `flash_safe_execute()`, während core0 als
 Lockout-Victim pausiert (`flash_range_erase` sperrt sonst beide Kerne). Details:
 Abschnitt „2.7 Dual-Core-Architektur" in `CLAUDE.md`.
-
-
-## Verkabelung zwischen Display und Pico
-
-Die Kommunikation zwischen dem ESP32-Displayterminal und der Pico-Firmware läuft über UART mit 115200 Baud.
-
-<img src="docs/pico-display-gpio.svg" alt="Verdrahtung von Display, Pico, Relais und Rückmeldungen" width="78.125%">
-
-GPIO-Belegung:
-
-- ESP32-Terminal: UART0 (`GPIO1` = TX, `GPIO3` = RX)
-- Pico-Firmware: UART0 (`GP0` = TX, `GP1` = RX)
-
-Verdrahtung (gekreuzt, TX auf RX):
-
-| ESP32-CYD | Pico 2 (RP2350) | Zweck |
-|---|---|---|
-| GPIO1 (TX) | GP1 (RX) | ESP32 sendet Schaltbefehle zum Pico |
-| GPIO3 (RX) | GP0 (TX) | Pico sendet Status/Antworten zum ESP32 |
-| GND | GND | Gemeinsame Masse |
-
-Wichtige Hinweise:
-
-- Beide Boards arbeiten mit 3,3-V-Logikpegeln (keinen 5-V-UART anschließen).
-- TX und RX müssen immer gekreuzt verbunden sein.
-- Die USB-Verbindungen der Boards bleiben zusätzlich für Stromversorgung, Flashen und Debugging nutzbar.
-- Verwendetes Textprotokoll auf der Leitung: z. B. `SW1:ON`, `SW1:OFF`, `SCENE1:GO`, `GET DISPLAY`, `VER:<version>`, `PING`/`PONG`. Das vollständige Protokoll ist in `MANUAL.md` und `CLAUDE.md` beschrieben.
 
 
 ## Kompilierung und Hochladen 
