@@ -11,7 +11,7 @@ Dieses Repository enthält zwei Module für eine 8-Kanal-Relaissteuerung:
 
 ## Systemüberblick: ESP32-Terminal + Pico-Implementierung
 
-<img src="docs/pico-display-gpio.svg" alt="Verdrahtung von Display, Pico, Relais und Rückmeldungen" width="78.125%">
+<img src="docs/pico-display-gpio.svg" alt="Verdrahtung von Display, Pico, Relais und Rückmeldungen" width="78.0%">
 
 ### Verkabelung zwischen Display und Pico
 
