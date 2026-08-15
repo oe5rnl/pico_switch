@@ -297,3 +297,7 @@ Den Remote-Namen `<owner>/<repo>` liefert ```git remote -v```.
 
 
 Projekt gebaut von OE5RNL, OE5NVL und Claude
+
+## Lizenz
+
+Dieses Projekt ist unter der [MIT-Lizenz](LICENSE) veröffentlicht.
