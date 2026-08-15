@@ -8,6 +8,7 @@ UF2_FILE="${BUILD_DIR}/switch_w6300_relay.uf2"
 LOCAL_COPY="${SCRIPT_DIR}/switch_w6300_relay_native.uf2"
 WIZNET_PICO_C_PATH="${WIZNET_PICO_C_PATH:-${SCRIPT_DIR}/WIZnet-PICO-C}"
 WIZNET_PICO_C_URL="${WIZNET_PICO_C_URL:-https://github.com/WIZnet-ioNIC/WIZnet-PICO-C.git}"
+WIZNET_PICO_C_REF="${WIZNET_PICO_C_REF:-90136e8b522dd429f0fd966a6d30d8c95066c6e4}"
 JOBS="${JOBS:-$(nproc)}"
 INPUT_MODE="${INPUT_MODE:-taster}"
 
@@ -38,6 +39,7 @@ Umgebung:
   INPUT_MODE          Eingangsmodus (taster|rueckm), von -m/--mode ueberschrieben
   WIZNET_PICO_C_PATH  Pfad zum WIZnet-PICO-C-Checkout (Default: ${SCRIPT_DIR}/WIZnet-PICO-C)
   WIZNET_PICO_C_URL   Git-URL fuer automatisches Klonen
+  WIZNET_PICO_C_REF   Gepinnter Git-Commit/Tag (Default: 90136e8b522dd429f0fd966a6d30d8c95066c6e4)
 EOF
       exit 0
       ;;
@@ -63,18 +65,29 @@ ensure_wiznet_source() {
   if [[ ! -e "${WIZNET_PICO_C_PATH}" ]]; then
     echo "==> Lade WIZnet-PICO-C nach ${WIZNET_PICO_C_PATH}"
     mkdir -p "$(dirname "${WIZNET_PICO_C_PATH}")"
-    git clone --recursive "${WIZNET_PICO_C_URL}" "${WIZNET_PICO_C_PATH}"
+    git clone "${WIZNET_PICO_C_URL}" "${WIZNET_PICO_C_PATH}"
   fi
+
+  if [[ ! -d "${WIZNET_PICO_C_PATH}/.git" ]]; then
+    echo "Fehler: ${WIZNET_PICO_C_PATH} ist kein Git-Checkout (Version nicht pinnbar)" >&2
+    exit 1
+  fi
+
+  # Auf den gepinnten Commit bringen (falls noetig nachladen)
+  if [[ "$(git -C "${WIZNET_PICO_C_PATH}" rev-parse HEAD)" != "${WIZNET_PICO_C_REF}" ]]; then
+    echo "==> Setze WIZnet-PICO-C auf gepinnten Commit ${WIZNET_PICO_C_REF}"
+    git -C "${WIZNET_PICO_C_PATH}" fetch origin "${WIZNET_PICO_C_REF}" 2>/dev/null \
+      || git -C "${WIZNET_PICO_C_PATH}" fetch --all --tags
+    git -C "${WIZNET_PICO_C_PATH}" checkout --detach "${WIZNET_PICO_C_REF}"
+  fi
+
+  # Submodule passend zum gepinnten Commit auschecken
+  git -C "${WIZNET_PICO_C_PATH}" submodule update --init --recursive
 
   if [[ ! -f "${WIZNET_PICO_C_PATH}/pico_sdk_import.cmake" ]]; then
     echo "Fehler: WIZnet-PICO-C nicht vollstaendig: ${WIZNET_PICO_C_PATH}" >&2
     echo "Erwartet wurde: ${WIZNET_PICO_C_PATH}/pico_sdk_import.cmake" >&2
     exit 1
-  fi
-
-  if [[ -d "${WIZNET_PICO_C_PATH}/.git" && ! -f "${WIZNET_PICO_C_PATH}/libraries/pico-sdk/CMakeLists.txt" ]]; then
-    echo "==> Aktualisiere WIZnet-PICO-C-Submodule"
-    git -C "${WIZNET_PICO_C_PATH}" submodule update --init --recursive
   fi
 }
 
