@@ -1,0 +1,168 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1120" viewBox="0 0 1600 1120" role="img" aria-labelledby="title desc">
+  <title id="title">Verdrahtung ESP32-CYD-Display und W6300-EVB-Pico2</title>
+  <desc id="desc">Kreuzungsfreie UART-Verbindung, Relaisausgänge GP2 bis GP9 und Rückmeldeeingänge GP10 bis GP14, GP26 bis GP28.</desc>
+  <defs>
+    <style>
+      .page { fill: #f5f7fa; }
+      .board { fill: #ffffff; stroke: #263238; stroke-width: 4; }
+      .display-head { fill: #1565c0; }
+      .pico-head { fill: #00695c; }
+      .relay-head { fill: #c62828; }
+      .feedback-head { fill: #6a1b9a; }
+      .head-text { fill: #ffffff; font: 700 25px sans-serif; text-anchor: middle; }
+      .title { fill: #17202a; font: 700 34px sans-serif; text-anchor: middle; }
+      .subtitle { fill: #455a64; font: 20px sans-serif; text-anchor: middle; }
+      .label { fill: #263238; font: 700 20px sans-serif; }
+      .small { fill: #455a64; font: 17px sans-serif; }
+      .pin-text { fill: #263238; font: 700 17px monospace; }
+      .channel { fill: #263238; font: 17px sans-serif; }
+      .uart-tx { fill: none; stroke: #ef6c00; stroke-width: 5; marker-end: url(#arrow-orange); }
+      .uart-rx { fill: none; stroke: #1976d2; stroke-width: 5; marker-end: url(#arrow-blue); }
+      .power { fill: none; stroke: #d32f2f; stroke-width: 5; }
+      .ground { fill: none; stroke: #263238; stroke-width: 6; }
+      .relay-wire { fill: none; stroke: #c62828; stroke-width: 3; }
+      .feedback-wire { fill: none; stroke: #6a1b9a; stroke-width: 3; }
+      .pin-display { fill: #90caf9; stroke: #0d47a1; stroke-width: 3; }
+      .pin-pico { fill: #80cbc4; stroke: #004d40; stroke-width: 3; }
+      .pin-relay { fill: #ef9a9a; stroke: #b71c1c; stroke-width: 3; }
+      .pin-feedback { fill: #ce93d8; stroke: #4a148c; stroke-width: 3; }
+    </style>
+    <marker id="arrow-orange" markerWidth="3" markerHeight="3" refX="2.5" refY="1.5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L3,1.5 L0,3 z" fill="#ef6c00"/>
+    </marker>
+    <marker id="arrow-blue" markerWidth="3" markerHeight="3" refX="2.5" refY="1.5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L3,1.5 L0,3 z" fill="#1976d2"/>
+    </marker>
+  </defs>
+
+  <rect class="page" width="1600" height="1120"/>
+  <text class="title" x="800" y="54">Verdrahtung: Display, Pico, Relais, Taster und Rückmeldungen</text>
+  <text class="subtitle" x="800" y="88">UART 115200 Baud · 3,3-V-Logik · gemeinsame Masse</text>
+
+  <!-- ESP32 display -->
+  <rect class="board" x="70" y="170" width="360" height="530" rx="24"/>
+  <path class="display-head" d="M94 170 H406 A24 24 0 0 1 430 194 V235 H70 V194 A24 24 0 0 1 94 170 Z"/>
+  <text class="head-text" x="250" y="213">ESP32-CYD-Display</text>
+  <rect x="120" y="265" width="260" height="160" rx="10" fill="#263238"/>
+  <rect x="137" y="282" width="226" height="126" rx="4" fill="#81d4fa"/>
+  <text class="label" x="250" y="340" text-anchor="middle">Touch-Display</text>
+  <text class="small" x="250" y="372" text-anchor="middle">lokale Bedienung</text>
+
+  <circle class="pin-display" cx="430" cy="470" r="12"/>
+  <circle class="pin-display" cx="430" cy="520" r="12"/>
+  <circle class="pin-display" cx="430" cy="585" r="12"/>
+  <circle class="pin-display" cx="430" cy="650" r="12"/>
+  <text class="pin-text" x="405" y="476" text-anchor="end">GPIO1 TX</text>
+  <text class="pin-text" x="405" y="526" text-anchor="end">GPIO3 RX</text>
+  <text class="pin-text" x="405" y="591" text-anchor="end">5V</text>
+  <text class="pin-text" x="405" y="656" text-anchor="end">GND</text>
+
+  <!-- Pico -->
+  <rect class="board" x="735" y="150" width="420" height="940" rx="24"/>
+  <path class="pico-head" d="M759 150 H1131 A24 24 0 0 1 1155 174 V225 H735 V174 A24 24 0 0 1 759 150 Z"/>
+  <text class="head-text" x="945" y="197">W6300-EVB-Pico2 (RP2350)</text>
+  <rect x="825" y="270" width="240" height="145" rx="32" fill="#b2dfdb" stroke="#00695c" stroke-width="3"/>
+  <text class="label" x="945" y="320" text-anchor="middle">Pico 2</text>
+  <text class="small" x="945" y="352" text-anchor="middle">Relaissteuerung</text>
+  <text class="small" x="945" y="382" text-anchor="middle">und Webserver</text>
+
+  <!-- W6300 Ethernet connector -->
+  <rect x="1155" y="298" width="82" height="90" rx="8" fill="#cfd8dc" stroke="#37474f" stroke-width="3"/>
+  <rect x="1170" y="313" width="42" height="60" rx="4" fill="#455a64"/>
+  <path d="M1212 321 H1225 M1212 331 H1225 M1212 341 H1225 M1212 351 H1225 M1212 361 H1225" stroke="#f9a825" stroke-width="3"/>
+  <text class="pin-text" x="1196" y="285" text-anchor="middle">LAN</text>
+
+  <circle class="pin-pico" cx="735" cy="470" r="12"/>
+  <circle class="pin-pico" cx="735" cy="520" r="12"/>
+  <circle class="pin-pico" cx="735" cy="585" r="12"/>
+  <circle class="pin-pico" cx="735" cy="650" r="12"/>
+  <text class="pin-text" x="760" y="476">GP1 RX · Pin 2</text>
+  <text class="pin-text" x="760" y="526">GP0 TX · Pin 1</text>
+  <text class="pin-text" x="760" y="591">VSYS · Pin 39</text>
+  <text class="pin-text" x="760" y="656">GND · Pin 3</text>
+
+  <!-- UART and ground: all straight, parallel, and non-crossing -->
+  <path class="uart-tx" d="M442 470 H723"/>
+  <path class="uart-rx" d="M723 520 H442"/>
+  <path class="power" d="M442 585 H723"/>
+  <path class="ground" d="M442 650 H723"/>
+  <text class="small" x="582" y="452" text-anchor="middle" fill="#ef6c00">Befehle →</text>
+  <text class="small" x="582" y="508" text-anchor="middle" fill="#1976d2">← Status</text>
+  <text class="small" x="582" y="573" text-anchor="middle" fill="#d32f2f">5 V</text>
+  <text class="small" x="582" y="630" text-anchor="middle">gemeinsame Masse</text>
+
+  <!-- Relay output pins -->
+  <text class="label" x="1045" y="719" text-anchor="middle">Relaisausgänge</text>
+  <g>
+    <circle class="pin-pico" cx="1155" cy="754" r="9"/><text class="pin-text" x="1133" y="760" text-anchor="end">GP2 · Pin 4</text>
+    <circle class="pin-pico" cx="1155" cy="794" r="9"/><text class="pin-text" x="1133" y="800" text-anchor="end">GP3 · Pin 5</text>
+    <circle class="pin-pico" cx="1155" cy="834" r="9"/><text class="pin-text" x="1133" y="840" text-anchor="end">GP4 · Pin 6</text>
+    <circle class="pin-pico" cx="1155" cy="874" r="9"/><text class="pin-text" x="1133" y="880" text-anchor="end">GP5 · Pin 7</text>
+    <circle class="pin-pico" cx="1155" cy="914" r="9"/><text class="pin-text" x="1133" y="920" text-anchor="end">GP6 · Pin 9</text>
+    <circle class="pin-pico" cx="1155" cy="954" r="9"/><text class="pin-text" x="1133" y="960" text-anchor="end">GP7 · Pin 10</text>
+    <circle class="pin-pico" cx="1155" cy="994" r="9"/><text class="pin-text" x="1133" y="1000" text-anchor="end">GP8 · Pin 11</text>
+    <circle class="pin-pico" cx="1155" cy="1034" r="9"/><text class="pin-text" x="1133" y="1040" text-anchor="end">GP9 · Pin 12</text>
+  </g>
+
+  <!-- Relay block -->
+  <rect class="board" x="1280" y="675" width="260" height="415" rx="20"/>
+  <path class="relay-head" d="M1300 675 H1520 A20 20 0 0 1 1540 695 V730 H1280 V695 A20 20 0 0 1 1300 675 Z"/>
+  <text class="head-text" x="1410" y="713">8 Relais</text>
+  <g class="channel">
+    <circle class="pin-relay" cx="1280" cy="754" r="9"/><text x="1310" y="760">Relais 1</text>
+    <circle class="pin-relay" cx="1280" cy="794" r="9"/><text x="1310" y="800">Relais 2</text>
+    <circle class="pin-relay" cx="1280" cy="834" r="9"/><text x="1310" y="840">Relais 3</text>
+    <circle class="pin-relay" cx="1280" cy="874" r="9"/><text x="1310" y="880">Relais 4</text>
+    <circle class="pin-relay" cx="1280" cy="914" r="9"/><text x="1310" y="920">Relais 5</text>
+    <circle class="pin-relay" cx="1280" cy="954" r="9"/><text x="1310" y="960">Relais 6</text>
+    <circle class="pin-relay" cx="1280" cy="994" r="9"/><text x="1310" y="1000">Relais 7</text>
+    <circle class="pin-relay" cx="1280" cy="1034" r="9"/><text x="1310" y="1040">Relais 8</text>
+  </g>
+
+  <path class="relay-wire" d="M1164 754 H1271"/>
+  <path class="relay-wire" d="M1164 794 H1271"/>
+  <path class="relay-wire" d="M1164 834 H1271"/>
+  <path class="relay-wire" d="M1164 874 H1271"/>
+  <path class="relay-wire" d="M1164 914 H1271"/>
+  <path class="relay-wire" d="M1164 954 H1271"/>
+  <path class="relay-wire" d="M1164 994 H1271"/>
+  <path class="relay-wire" d="M1164 1034 H1271"/>
+
+  <!-- Feedback block -->
+  <rect class="board" x="70" y="745" width="540" height="345" rx="20"/>
+  <path class="feedback-head" d="M90 745 H590 A20 20 0 0 1 610 765 V800 H70 V765 A20 20 0 0 1 90 745 Z"/>
+  <text class="head-text" x="340" y="783">8 Rückmeldungen/Taster</text>
+  <text class="small" x="340" y="828" text-anchor="middle">Eingänge im Modus „rueckm“ und „taster“</text>
+  <g class="channel">
+    <text x="105" y="858">Rückmeldung 1</text><text class="pin-text" x="570" y="858" text-anchor="end">GP10 · Pin 14</text><circle class="pin-feedback" cx="610" cy="852" r="9"/>
+    <text x="105" y="884">Rückmeldung 2</text><text class="pin-text" x="570" y="884" text-anchor="end">GP11 · Pin 15</text><circle class="pin-feedback" cx="610" cy="878" r="9"/>
+    <text x="105" y="910">Rückmeldung 3</text><text class="pin-text" x="570" y="910" text-anchor="end">GP12 · Pin 16</text><circle class="pin-feedback" cx="610" cy="904" r="9"/>
+    <text x="105" y="936">Rückmeldung 4</text><text class="pin-text" x="570" y="936" text-anchor="end">GP13 · Pin 17</text><circle class="pin-feedback" cx="610" cy="930" r="9"/>
+    <text x="105" y="962">Rückmeldung 5</text><text class="pin-text" x="570" y="962" text-anchor="end">GP14 · Pin 19</text><circle class="pin-feedback" cx="610" cy="956" r="9"/>
+    <text x="105" y="988">Rückmeldung 6</text><text class="pin-text" x="570" y="988" text-anchor="end">GP26 · Pin 31</text><circle class="pin-feedback" cx="610" cy="982" r="9"/>
+    <text x="105" y="1014">Rückmeldung 7</text><text class="pin-text" x="570" y="1014" text-anchor="end">GP27 · Pin 32</text><circle class="pin-feedback" cx="610" cy="1008" r="9"/>
+    <text x="105" y="1040">Rückmeldung 8</text><text class="pin-text" x="570" y="1040" text-anchor="end">GP28 · Pin 34</text><circle class="pin-feedback" cx="610" cy="1034" r="9"/>
+  </g>
+
+  <!-- Feedback connections terminate at the corresponding Pico input list -->
+  <path class="feedback-wire" d="M619 852 H726"/>
+  <path class="feedback-wire" d="M619 878 H726"/>
+  <path class="feedback-wire" d="M619 904 H726"/>
+  <path class="feedback-wire" d="M619 930 H726"/>
+  <path class="feedback-wire" d="M619 956 H726"/>
+  <path class="feedback-wire" d="M619 982 H726"/>
+  <path class="feedback-wire" d="M619 1008 H726"/>
+  <path class="feedback-wire" d="M619 1034 H726"/>
+
+  <g>
+    <circle class="pin-pico" cx="735" cy="852" r="9"/><text class="pin-text" x="757" y="858">GP10 · Pin 14</text>
+    <circle class="pin-pico" cx="735" cy="878" r="9"/><text class="pin-text" x="757" y="884">GP11 · Pin 15</text>
+    <circle class="pin-pico" cx="735" cy="904" r="9"/><text class="pin-text" x="757" y="910">GP12 · Pin 16</text>
+    <circle class="pin-pico" cx="735" cy="930" r="9"/><text class="pin-text" x="757" y="936">GP13 · Pin 17</text>
+    <circle class="pin-pico" cx="735" cy="956" r="9"/><text class="pin-text" x="757" y="962">GP14 · Pin 19</text>
+    <circle class="pin-pico" cx="735" cy="982" r="9"/><text class="pin-text" x="757" y="988">GP26 · Pin 31</text>
+    <circle class="pin-pico" cx="735" cy="1008" r="9"/><text class="pin-text" x="757" y="1014">GP27 · Pin 32</text>
+    <circle class="pin-pico" cx="735" cy="1034" r="9"/><text class="pin-text" x="757" y="1040">GP28 · Pin 34</text>
+  </g>
+
+</svg>
