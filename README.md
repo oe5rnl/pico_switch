@@ -67,7 +67,7 @@ Abschnitt „2.7 Dual-Core-Architektur" in `CLAUDE.md`.
 
 Die Kommunikation zwischen dem ESP32-Displayterminal und der Pico-Firmware laeuft ueber UART mit 115200 Baud.
 
-<img src="docs/pico-display-gpio.svg" alt="Verdrahtung von Display, Pico, Relais und Rückmeldungen" width="62.5%">
+<img src="docs/pico-display-gpio.svg" alt="Verdrahtung von Display, Pico, Relais und Rückmeldungen" width="78.125%">
 
 GOIO Belegung:
 
