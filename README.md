@@ -109,6 +109,9 @@ cd pico
 ./upload.sh 
 
 ```
+
+Das Skript `pico/upload.sh` klont den Code `pico/WIZnet-PICO-C` beim ersten Lauf automatisch aus dem Netz. Daher kann das erste kompilieren etwas länger dauern. WIZnet ist per `.gitignore` augenommen. 
+
 ### Kompilierung und Hochladen im Detail (normalerweise nicht notwendig)
 
 
