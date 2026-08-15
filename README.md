@@ -16,6 +16,7 @@ Dieses Repository enthält zwei Module für eine 8-Kanal-Relaissteuerung:
 ### Verkabelung zwischen Display und Pico
 
 Die Kommunikation zwischen dem ESP32-Displayterminal und der Pico-Firmware läuft über UART mit 115200 Baud.
+Die Verbindung geht über das vierpolige Kabel 
 
 GPIO-Belegung:
 
