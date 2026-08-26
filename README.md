@@ -154,10 +154,36 @@ cd pico
 ./upload.sh                    # Build + Upload aufs BOOTSEL-Laufwerk
 ./upload.sh -c                 # Clean-Build erzwingen
 ./upload.sh -m rueckm          # Eingangsmodus Rückmeldung (Default: taster)
+./upload.sh -w                 # EINMAL-Werksreset: Persistenz beim Boot löschen (s. u.)
 ./upload.sh /pfad/zum/RP2350   # alternatives Ziel-Laufwerk
 ```
 
 `upload.sh` klont beim ersten Aufruf die benötigten Abhängigkeiten.
+
+##### Werksreset: gespeicherte Konfiguration löschen (`-w` / `--wipe-persist`)
+
+Die Einstellungen liegen in festen Flash-Slots **außerhalb** des Programm-Images
+und überstehen deshalb ein normales Reflashen. Enthält der Flash jedoch einen
+Datensatz mit **inkompatiblem Speicherformat** (andere `PERSIST_VERSION`, z. B.
+nach einem verworfenen Branch), erkennt die Firmware das beim Boot und **sperrt
+zum Schutz jedes weitere Speichern** — die Konfiguration bleibt dann nach einem
+Neustart oder Reflashen nicht mehr erhalten.
+
+Mit `-w` baut das Skript eine Firmware, die beim Boot **einmalig** alle
+Persistenz-Slots löscht. Danach speichert die normale Firmware wieder korrekt.
+Der Ablauf umfasst **zwei** Flash-Vorgänge (Reihenfolge einhalten):
+
+```bash
+cd pico
+./upload.sh -w    # 1) Werksreset-Firmware flashen: löscht beim Boot die Persistenz
+                  #    kurz laufen lassen (USB-Konsole zeigt "PERSIST_WIPE: ... geloescht")
+./upload.sh       # 2) normale Firmware flashen: entfernt den Boot-Wipe wieder
+```
+
+- **Schritt 2 nicht vergessen:** Solange die `-w`-Firmware installiert ist,
+  löscht jeder Boot erneut. Erst die normale Firmware macht die Persistenz dauerhaft.
+- `-w` bei Bedarf mit `-m taster|rueckm` kombinieren (Default `taster`).
+- Nach dem Reset gelten die Werkseinstellungen inkl. Login `admin` / `sw234`.
 
 Zum Flashen muss der Pico im BOOTSEL-Modus sein:
 

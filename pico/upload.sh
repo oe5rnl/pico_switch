@@ -11,6 +11,7 @@ WIZNET_PICO_C_URL="${WIZNET_PICO_C_URL:-https://github.com/WIZnet-ioNIC/WIZnet-P
 WIZNET_PICO_C_REF="${WIZNET_PICO_C_REF:-90136e8b522dd429f0fd966a6d30d8c95066c6e4}"
 JOBS="${JOBS:-$(nproc)}"
 INPUT_MODE="${INPUT_MODE:-taster}"
+WIPE_PERSIST="${WIPE_PERSIST:-0}"
 
 CLEAN=0
 POSITIONAL=()
@@ -24,13 +25,20 @@ while [[ $# -gt 0 ]]; do
       INPUT_MODE="${2:-}"
       shift 2
       ;;
+    -w|--wipe-persist)
+      WIPE_PERSIST=1
+      shift
+      ;;
     -h|--help)
       cat <<EOF
-Usage: $(basename "$0") [-c|--clean] [-m|--mode taster|rueckm] [UPLOAD_DIR]
+Usage: $(basename "$0") [-c|--clean] [-m|--mode taster|rueckm] [-w|--wipe-persist] [UPLOAD_DIR]
 
 Options:
   -c, --clean          Build-Verzeichnis vor dem Bau loeschen (Clean Build)
   -m, --mode MODE      Eingangsmodus: taster (Default) oder rueckm
+  -w, --wipe-persist   EINMAL-Werksreset: Firmware loescht beim Boot alle
+                       gespeicherten Einstellungen (Persistenz-Slots). Danach
+                       OHNE dieses Flag neu flashen, sonst wird jeder Boot geloescht.
   -h, --help           Diese Hilfe anzeigen
 
 UPLOAD_DIR  Zielverzeichnis fuer die UF2-Datei (Default: /media/\$USER/RP2350)
@@ -103,8 +111,16 @@ if [[ "${INPUT_MODE}" != "taster" && "${INPUT_MODE}" != "rueckm" ]]; then
   exit 1
 fi
 
-echo "==> CMake configure (INPUT_MODE=${INPUT_MODE})"
-cmake -S "${PROJECT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release -DWIZNET_PICO_C_PATH="${WIZNET_PICO_C_PATH}" -DINPUT_MODE="${INPUT_MODE}"
+if [[ "${WIPE_PERSIST}" -eq 1 ]]; then
+  PERSIST_WIPE_CMAKE=ON
+  echo "!! WARNUNG: PERSIST_WIPE=ON -> diese Firmware LOESCHT beim Boot alle gespeicherten"
+  echo "!!          Einstellungen. Danach OHNE -w/--wipe-persist neu flashen."
+else
+  PERSIST_WIPE_CMAKE=OFF
+fi
+
+echo "==> CMake configure (INPUT_MODE=${INPUT_MODE}, PERSIST_WIPE=${PERSIST_WIPE_CMAKE})"
+cmake -S "${PROJECT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release -DWIZNET_PICO_C_PATH="${WIZNET_PICO_C_PATH}" -DINPUT_MODE="${INPUT_MODE}" -DPERSIST_WIPE="${PERSIST_WIPE_CMAKE}"
 
 echo "==> Make build (${JOBS} jobs)"
 make -C "${BUILD_DIR}" -j"${JOBS}"

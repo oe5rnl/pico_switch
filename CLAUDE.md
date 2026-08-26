@@ -321,14 +321,48 @@ cd pico
 ./upload.sh              # baut UF2 und kopiert es aufs BOOTSEL-Laufwerk
 # ./upload.sh -c         # Clean-Build erzwingen
 # ./upload.sh -m rueckm  # Eingangsmodus Rückmeldung statt Taster (Default: taster)
+# ./upload.sh -w         # EINMAL-Werksreset: löscht beim Boot die Persistenz (siehe unten)
 # ./upload.sh /pfad/zum/RP2350   # alternatives Ziel-Laufwerk
 ```
 
 - Pico beim Flashen mit gedrückter **BOOTSEL**-Taste anstecken
   (Ziel-Laufwerk `/media/<user>/RP2350`).
 - Eingangsmodus (Taster/Rückmeldung) per `-m|--mode` bzw. `-DINPUT_MODE=` (siehe 2.9).
+- Werksreset (Persistenz löschen) per `-w|--wipe-persist` bzw. `-DPERSIST_WIPE=ON` (siehe 6.1).
 - Targets: `switch_w6300_relay` (Produktiv), `uart_loopback_test` (Diagnose).
 - Serielles Debug/CDC: `/dev/ttyACM0`, 115200.
+
+#### 6.1 Persistenz zurücksetzen / Werksreset (`-w|--wipe-persist`)
+
+Nötig, wenn im Flash ein Konfig-Datensatz mit **inkompatibler `PERSIST_VERSION`**
+liegt (z. B. nach einem verworfenen Branch, der das Speicherformat geändert hat).
+`load_config()` erkennt dann Magic-ok aber unbekannte Version → Ergebnis
+`LayoutChanged` → `main()` setzt `persist_write_locked = true`. Dieser
+Downgrade-Schutz **blockiert jedes weitere Speichern** — Einstellungen bleiben
+nach Reboot/Reflash nicht erhalten. Ein normales UF2-Flashen hilft nicht, da die
+Persistenz-Slots (`0x3F000`, `0x7F000`, `0xFF000`, `PICO_FLASH_SIZE-0x1000`)
+**außerhalb** des Programm-Images liegen und dabei unangetastet bleiben.
+
+Der Compilerschalter `PERSIST_WIPE` baut eine Firmware, die beim Boot **einmalig**
+`wipe_persist_slots()` ausführt (Erase aller 4 Slots, vor dem core1-Start mit
+gesperrten Interrupts). Danach liefert `load_config()` `Empty`, der Write-Lock
+entfällt und die aktuelle Version speichert wieder normal.
+
+Ablauf (zwei Flash-Vorgänge, Reihenfolge wichtig):
+
+```bash
+cd pico
+./upload.sh -w    # 1) Werksreset-Firmware flashen -> löscht beim Boot die Persistenz
+                  #    kurz laufen lassen (USB-Log: "PERSIST_WIPE: ... geloescht")
+./upload.sh       # 2) normale Firmware flashen -> entfernt den Boot-Wipe
+```
+
+- **Schritt 2 ist zwingend:** Solange die `-w`-Firmware läuft, löscht **jeder**
+  Boot erneut. Erst die normale Firmware macht die Persistenz wieder dauerhaft.
+- `-w` immer zusammen mit dem gewünschten `-m taster|rueckm` angeben (Default `taster`).
+- Nach dem Reset gelten die Defaults inkl. Login `admin` / `sw234`.
+- `upload.sh` übergibt `-DPERSIST_WIPE=ON|OFF` **immer explizit** an CMake, damit
+  ein `ON` nicht im CMake-Cache hängen bleibt und Schritt 2 sicher `OFF` baut.
 
 ### ESP32 (`esp32/`)
 

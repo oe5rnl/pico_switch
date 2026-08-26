@@ -1011,6 +1011,24 @@ static ConfigLoadResult load_config() {
   return saw_invalid ? ConfigLoadResult::LayoutChanged : ConfigLoadResult::Empty;
 }
 
+#ifdef PERSIST_WIPE
+// Einmaliger Werksreset: loescht alle Persistenz-Slots, damit load_config()
+// danach "Empty" liefert (statt bei einem unbekannten/inkompatiblen Layout den
+// persist_write_locked-Schutz zu setzen, der jedes Speichern blockiert). Wird
+// nur mit -DPERSIST_WIPE=ON gebaut und laeuft VOR dem core1-Start -> ein
+// direktes Erase mit gesperrten Interrupts ist hier sicher (wie im Boot-Pfad
+// von save_config()). Danach OHNE das Flag neu bauen/flashen.
+static void wipe_persist_slots() {
+  uint32_t interrupts = save_and_disable_interrupts();
+  for (uintptr_t offset : persist_flash_offsets()) {
+    if (!persist_flash_offset_usable(offset)) continue;
+    flash_range_erase(offset, FLASH_SECTOR_SIZE);
+  }
+  restore_interrupts(interrupts);
+  printf("PERSIST_WIPE: alle Persistenz-Slots geloescht (Werksreset).\n");
+}
+#endif
+
 static Session *get_session(const std::string &token) {
   if (token.empty()) return nullptr;
   for (auto it = sessions.begin(); it != sessions.end();) {
@@ -1323,7 +1341,10 @@ static std::string scenes_config_json() {
 }
 
 static bool check_api_key(const HttpRequest &req) {
-  if (api_keys_db.empty()) return true;
+  // Ohne konfigurierte Keys ist Key-Auth kein Zugriffsgrund: false, damit
+  // die Entscheidung public_access/Session ueberlassen bleibt (sonst wuerde
+  // eine leere Key-DB jeden Request in has_*_access() freigeben).
+  if (api_keys_db.empty()) return false;
   std::string key;
   auto it = req.headers.find("x-api-key");
   if (it != req.headers.end()) key = it->second;
@@ -2523,6 +2544,9 @@ int main() {
   printf("OE5RNL> W6300 Relay Webserver startet\n");
   random_state ^= time_us_32();
   init_relays();
+#ifdef PERSIST_WIPE
+  wipe_persist_slots();  // Einmal-Wipe (mit -DPERSIST_WIPE=ON gebaut): danach ohne Flag neu flashen
+#endif
   ConfigLoadResult config_load_result = load_config();
   configure_feedback_inputs();
   init_users();

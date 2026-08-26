@@ -87,6 +87,20 @@ else()
     message(FATAL_ERROR "INPUT_MODE muss 'taster' oder 'rueckm' sein (war: ${INPUT_MODE})")
 endif()
 
+# ---- Einmaliger Persistenz-Wipe (Werksreset) -----------------------------
+# -DPERSIST_WIPE=ON : Firmware loescht beim Boot EINMALIG alle Persistenz-Slots
+# und startet mit Defaults (siehe wipe_persist_slots() in relay_server.cpp).
+# Danach wieder OHNE dieses Flag bauen/flashen, sonst wird bei jedem Boot erneut
+# geloescht. Behebt u.a. einen haengenden Persistenz-Write-Lock durch einen
+# zurueckgebliebenen Datensatz einer inkompatiblen Firmwareversion.
+option(PERSIST_WIPE "Persistenz-Slots beim Boot einmalig loeschen (Werksreset)" OFF)
+if(PERSIST_WIPE)
+    target_compile_definitions(switch_w6300_relay PRIVATE PERSIST_WIPE=1)
+    message(WARNING "PERSIST_WIPE=ON: Firmware loescht beim Boot ALLE gespeicherten Einstellungen. Danach ohne dieses Flag neu bauen/flashen!")
+else()
+    message(STATUS "PERSIST_WIPE: OFF (normale Persistenz)")
+endif()
+
 pico_enable_stdio_usb(switch_w6300_relay 1)
 pico_enable_stdio_uart(switch_w6300_relay 0)
 pico_add_extra_outputs(switch_w6300_relay)
