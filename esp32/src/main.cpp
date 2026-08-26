@@ -62,6 +62,7 @@ TFT_eSPI tft = TFT_eSPI(screenWidth, screenHeight);
 static bool     switch_state[SWITCH_COUNT] = { false };
 static bool     feedback_error[SWITCH_COUNT] = { false };
 static bool     scene_feedback_error[SWITCH_COUNT] = { false };
+static bool     scene_wait[SWITCH_COUNT] = { false };   // wartet auf Rueckmeldung -> gelb
 static String   switch_names[SWITCH_COUNT];
 static bool     scene_mode = false;
 static String   scene_names[SWITCH_COUNT];
@@ -98,6 +99,20 @@ static bool parse_error_line(const String &line)
     if (idx < 0 || idx >= SWITCH_COUNT || (value != "ON" && value != "OFF")) return false;
     if (scene_error) scene_feedback_error[idx] = value == "ON";
     else feedback_error[idx] = value == "ON";
+    update_switch_visual(idx);
+    return true;
+}
+
+// WAITn:ON/OFF -> Szene n wartet auf Rueckmeldung (gelber Button).
+static bool parse_wait_line(const String &line)
+{
+    if (!line.startsWith("WAIT")) return false;
+    int colon = line.indexOf(':');
+    if (colon <= 4) return false;
+    int idx = line.substring(4, colon).toInt() - 1;
+    String value = line.substring(colon + 1);
+    if (idx < 0 || idx >= SWITCH_COUNT || (value != "ON" && value != "OFF")) return false;
+    scene_wait[idx] = value == "ON";
     update_switch_visual(idx);
     return true;
 }
@@ -204,6 +219,10 @@ static bool pico_read_display_config(String &title)
         }
 
         if (parse_error_line(line)) {
+            continue;
+        }
+
+        if (parse_wait_line(line)) {
             continue;
         }
 
@@ -315,6 +334,7 @@ static void handle_pico_async_line(const String &line)
     }
 
     if (parse_error_line(line)) return;
+    if (parse_wait_line(line)) return;
     if (handle_pico_state_line(line)) return;
     if (handle_pico_title_line(line)) return;
     handle_pico_name_line(line);
@@ -386,7 +406,10 @@ static void update_switch_visual(int idx)
     if(scene_mode) {
         if(scene_names[idx].length() > 0) {
             lv_obj_clear_flag(btn, LV_OBJ_FLAG_HIDDEN);
-            uint32_t col = scene_feedback_error[idx] ? 0xF00000 : ((idx == active_scene) ? 0x00F805 : 0x45F8FF);
+            /* Prioritaet: gelb (wartet) > rot (Fehler) > gruen (aktiv) > cyan */
+            uint32_t col = scene_wait[idx] ? 0xFFD000
+                          : (scene_feedback_error[idx] ? 0xF00000
+                          : ((idx == active_scene) ? 0x00F805 : 0x45F8FF));
             lv_obj_set_style_bg_color(btn, lv_color_hex(col), 0);
             String sname = scene_names[idx];
             sname.replace("|", "\n"); /* '|' im Szenennamen erzwingt Zeilenumbruch */
