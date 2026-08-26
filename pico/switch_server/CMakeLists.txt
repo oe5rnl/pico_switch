@@ -107,7 +107,7 @@ pico_add_extra_outputs(switch_w6300_relay)
 
 # ---- Firmware-Version aus Git-Commit-Count (nur Web-Anzeige) --------------
 # Erzeugt bei jedem Build generated/fw_version.h mit FW_VERSION="xx.xxxxx".
-set(FW_MAJOR "05" CACHE STRING "Manuelle Hauptversion (xx)")
+set(FW_MAJOR "06" CACHE STRING "Manuelle Hauptversion (xx)")
 set(FW_VERSION_HEADER "${CMAKE_BINARY_DIR}/generated/fw_version.h")
 add_custom_target(gen_fw_version
     BYPRODUCTS ${FW_VERSION_HEADER}

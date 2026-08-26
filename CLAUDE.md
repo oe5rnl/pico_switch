@@ -53,6 +53,8 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
 | `RELAY_ACTIVE_LOW` | `false` | Schaltlogik (HIGH = aktiv) |
 | `DEFAULT_FEEDBACK_TIMEOUT_MS` | 500 | Standardfrist für eine Rückmeldung (Modus `rueckm`) |
 | `DEFAULT_INPUT_TIME_MS` | 25 (Taster) / 500 (Rückm.) | Default für Entprell-/Rückmeldezeit je Eingangsmodus |
+| `DEFAULT_IMPULSE_MS` | 300 | Standard-Impulszeit je Ausgang (Impuls-Modus) |
+| `MIN/MAX_IMPULSE_MS` | 100 / 2000 | Grenzen der je Ausgang einstellbaren Impulszeit |
 | `HTTP_PORT` | 80 | Webserver-Port |
 | `HTTP_SOCKET_COUNT` | 8 | Parallele W6300-Sockets |
 | `DHCP_SELECT_PIN` | 15 | HIGH/offen → DHCP, LOW → statische IP |
@@ -70,12 +72,13 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
 
 ### 2.3 Persistenz (Flash)
 
-- Struktur `PersistedConfig` (aktuell `PERSIST_VERSION = 7`), passt in einen Flash-Sektor.
-- Versionierte Migration: `PersistedConfigV1` bis `V6` / aktuell.
+- Struktur `PersistedConfig` (aktuell `PERSIST_VERSION = 8`), passt in einen Flash-Sektor.
+- Versionierte Migration: `PersistedConfigV1` bis `V7` / aktuell.
 - Gespeichert: Relais-Zustände, Namen, Titel/Untertitel, `public_access`,
   Benutzer, API-Keys, statische IP/SN/GW, Szenen-Modus + Szenen
   (Name, aktiv-Flag, je Kanal Aktion aus/ein/unverändert), Ausgangspolaritäten,
-  Rückmeldeaktivierung/-polarität und gemeinsame Rückmeldezeit.
+  Rückmeldeaktivierung/-polarität, gemeinsame Rückmeldezeit sowie je Ausgang
+  Impuls-Aktivierung und Impulszeit (100–2000 ms).
 - CMake-Check `check_persist_overlap.cmake` stellt sicher, dass der Flash-Slot
   nicht mit dem Binär-Image kollidiert.
 
@@ -86,7 +89,7 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
 | GET | `/`, `/index.html` | Haupt-UI |
 | GET/POST | `/login`, `/logout` | Authentifizierung |
 | GET/POST | `/password` | Passwort ändern |
-| GET/POST | `/config` | Titel/Namen/`public_access`, Ausgangspolarität (Low aktiv), Rückmeldung + Rückmeldezeit; Namensfelder zeigen die zugehörige Ausgangs-GPIO (z. B. „Relais 1 (GP2)"). Im Taster-Modus (2.9) entfallen die Felder „Rückmeldung"/„Rückm. LOW"; stattdessen erscheinen „Taster GPxx" + Pseudo-LED und „Taster-Entprellzeit" |
+| GET/POST | `/config` | Titel/Namen/`public_access`, Ausgangspolarität (Low aktiv), je Ausgang Impuls (Checkbox + Impulszeit 100–2000 ms, Default 300), Rückmeldung + Rückmeldezeit; Namensfelder zeigen die zugehörige Ausgangs-GPIO (z. B. „Relais 1 (GP2)"). Im Taster-Modus (2.9) entfallen die Felder „Rückmeldung"/„Rückm. LOW"; stattdessen erscheinen „Taster GPxx" + Pseudo-LED und „Taster-Entprellzeit" |
 | GET/POST | `/network` | Statische IP-Einstellungen |
 | GET/POST | `/admin` | Benutzer-/API-Key-Verwaltung |
 | GET | `/me` | Aktueller Benutzer |
@@ -148,12 +151,13 @@ auf die **zwei Kerne** des RP2350 aufgeteilt:
 
 | | **core0 — Steuerung** | **core1 — Netzwerk** |
 |---|---|---|
-| Aufgaben | ESP-UART (`esp_link::service`), Relais-GPIO, Rückmeldungen, Szenen | W6300, HTTP-Server, DHCP, SSE, **Flash-Schreiben** |
+| Aufgaben | ESP-UART (`esp_link::service`), Relais-GPIO, Rückmeldungen, Impulse, Szenen | W6300, HTTP-Server, DHCP, SSE, **Flash-Schreiben** |
 | Blockiert nie? | **ja** (nur GPIO/UART, kein W6300/Flash) | darf blockieren (isoliert von core0) |
 | Loop | `net_core_main()` **nicht** — reiner `while`-Loop in `main()` | `net_core_main()` |
 
 - **core0** (`main()` nach `multicore_launch_core1`): `esp_link::service()`,
-  `service_relay_feedback()`, Versand des IP-Status. Fasst **niemals** W6300 oder
+  `service_relay_feedback()`, `service_impulses()` (beendet abgelaufene, parallel
+  laufende Ausgangs-Impulse), Versand des IP-Status. Fasst **niemals** W6300 oder
   Flash an → kann nicht blockieren → Relais reagieren sofort.
 - **core1** (`net_core_main()`): `init_network()`, `service_socket()×8`,
   `keepalive_sse()`, `service_network_link()` (LAN-Reconnect) und die Flash-/SSE-
@@ -196,7 +200,7 @@ Reihenfolge bewusst so gewählt, damit das Display **unabhängig vom DHCP** frü
 5. `recursive_mutex_init(&g_state_mtx)`, `flash_safe_execute_core_init()` (core0 als
    Lockout-Victim), `g_core1_started = true`, dann `multicore_launch_core1(net_core_main)`.
 6. **core0** tritt in den Steuer-Loop ein (`esp_link::service`, IP-Status,
-   `service_relay_feedback`). **core1** startet parallel `net_core_main()`:
+   `service_relay_feedback`, `service_impulses`). **core1** startet parallel `net_core_main()`:
    `init_network()` (DHCP/statisch, darf blockieren), Sockets öffnen, dann
    `service_socket()×8` / `keepalive_sse()` / `service_network_link()` plus Flash-/
    SSE-Aufträge. Der Boot des Displays hängt damit **nicht** mehr am DHCP.
