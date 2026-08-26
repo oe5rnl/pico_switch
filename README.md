@@ -48,6 +48,7 @@ Stellt das lokale Touch-Terminal bereit (8 Tasten, ON/OFF-Statusfarben, Szenenan
 
 Enthält die eigentliche Relais- und Netzwerk-Firmware und implementiert:
 - Einzelrelaissteuerung und Szenen
+- **Impuls-Ausgänge (je Kanal):** optional schaltet ein Ausgang nicht statisch, sondern gibt einen Impuls aus. Impulszeit pro Kanal 100–2000 ms (Default 300 ms), auf der Konfig-Seite einstellbar. Mehrere Impulse laufen parallel/nicht-blockierend (jeder Kanal hat eine eigene Abschaltzeit). Kombinierbar mit „Low aktiv" und Rückmeldung; der momentane EIN-Zustand wird bewusst **nicht** gespeichert (kein Flash-Verschleiß, Kanal ruht nach Reboot auf AUS)
 - Eingangsmodus per Compilerschalter `INPUT_MODE` (Default `taster`): entweder physische **Rückmeldeüberwachung** (`rueckm`) oder entprellte **Taster** an GP10–28 (`taster`), die je ein Relais toggeln (parallel zu Web/Display; im Szenenmodus lösen sie Szenen aus)
 - Rückmeldeüberwachung: Prüfung, ob Relais geschaltet haben
 - HTTP-UI-Webserver
@@ -75,7 +76,7 @@ Verbindungen). Die blockierenden WIZnet-Aufrufe (`send`/`recv`/`sendto`/`disconn
 warten per Busy-Loop) würden in einer einzigen Schleife das Relais- und Display-
 Handling aushungern. Die Firmware nutzt deshalb **beide Kerne** des RP2350:
 
-- **core0 (Steuerung):** ESP-UART (`esp_link`), Relais-GPIO, Rückmeldungen, Szenen.
+- **core0 (Steuerung):** ESP-UART (`esp_link`), Relais-GPIO, Rückmeldungen, Impuls-Abschaltung (`service_impulses`), Szenen.
   Fasst **niemals** W6300 oder Flash an → kann nicht blockieren → Relais reagieren
   sofort, egal was das Netzwerk gerade macht.
 - **core1 (Netzwerk):** W6300, HTTP-Server, DHCP, SSE-Live-Updates und das

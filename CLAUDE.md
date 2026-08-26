@@ -70,12 +70,15 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
 
 ### 2.3 Persistenz (Flash)
 
-- Struktur `PersistedConfig` (aktuell `PERSIST_VERSION = 7`), passt in einen Flash-Sektor.
-- Versionierte Migration: `PersistedConfigV1` bis `V6` / aktuell.
+- Struktur `PersistedConfig` (aktuell `PERSIST_VERSION = 8`), passt in einen Flash-Sektor.
+- Versionierte Migration: `PersistedConfigV1` bis `V7` / aktuell.
 - Gespeichert: Relais-Zustände, Namen, Titel/Untertitel, `public_access`,
   Benutzer, API-Keys, statische IP/SN/GW, Szenen-Modus + Szenen
   (Name, aktiv-Flag, je Kanal Aktion aus/ein/unverändert), Ausgangspolaritäten,
-  Rückmeldeaktivierung/-polarität und gemeinsame Rückmeldezeit.
+  Rückmeldeaktivierung/-polarität, gemeinsame Rückmeldezeit sowie je Kanal
+  Impuls-Aktivierung + Impulszeit (siehe 2.10).
+  **Impuls-Kanäle speichern ihren momentanen EIN-Zustand nie** (`save_config()`
+  schreibt für sie stets `0`) → kein Flash-Verschleiß, Boot immer AUS.
 - CMake-Check `check_persist_overlap.cmake` stellt sicher, dass der Flash-Slot
   nicht mit dem Binär-Image kollidiert.
 
@@ -86,7 +89,7 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
 | GET | `/`, `/index.html` | Haupt-UI |
 | GET/POST | `/login`, `/logout` | Authentifizierung |
 | GET/POST | `/password` | Passwort ändern |
-| GET/POST | `/config` | Titel/Namen/`public_access`, Ausgangspolarität (Low aktiv), Rückmeldung + Rückmeldezeit; Namensfelder zeigen die zugehörige Ausgangs-GPIO (z. B. „Relais 1 (GP2)"). Im Taster-Modus (2.9) entfallen die Felder „Rückmeldung"/„Rückm. LOW"; stattdessen erscheinen „Taster GPxx" + Pseudo-LED und „Taster-Entprellzeit" |
+| GET/POST | `/config` | Titel/Namen/`public_access`, Ausgangspolarität (Low aktiv), je Kanal Impuls-Checkbox + Impulszeit (2.10), Rückmeldung + Rückmeldezeit; Namensfelder zeigen die zugehörige Ausgangs-GPIO (z. B. „Relais 1 (GP2)"). Im Taster-Modus (2.9) entfallen die Felder „Rückmeldung"/„Rückm. LOW"; stattdessen erscheinen „Taster GPxx" + Pseudo-LED und „Taster-Entprellzeit" |
 | GET/POST | `/network` | Statische IP-Einstellungen |
 | GET/POST | `/admin` | Benutzer-/API-Key-Verwaltung |
 | GET | `/me` | Aktueller Benutzer |
@@ -148,7 +151,7 @@ auf die **zwei Kerne** des RP2350 aufgeteilt:
 
 | | **core0 — Steuerung** | **core1 — Netzwerk** |
 |---|---|---|
-| Aufgaben | ESP-UART (`esp_link::service`), Relais-GPIO, Rückmeldungen, Szenen | W6300, HTTP-Server, DHCP, SSE, **Flash-Schreiben** |
+| Aufgaben | ESP-UART (`esp_link::service`), Relais-GPIO, Rückmeldungen, Impuls-Abschaltung (`service_impulses`), Szenen | W6300, HTTP-Server, DHCP, SSE, **Flash-Schreiben** |
 | Blockiert nie? | **ja** (nur GPIO/UART, kein W6300/Flash) | darf blockieren (isoliert von core0) |
 | Loop | `net_core_main()` **nicht** — reiner `while`-Loop in `main()` | `net_core_main()` |
 
@@ -236,6 +239,35 @@ Verhalten im Taster-Modus (`INPUT_MODE_BUTTON`):
 - **Persistenz:** gleiche `PersistedConfig`-Struktur wie im Rückmeldemodus; die
   Entprellzeit nutzt das vorhandene `feedback_timeout_ms`-Feld → **keine**
   Versionserhöhung. Die `feedback_*`-Felder sind im Taster-Modus ungenutzt.
+
+### 2.10 Impuls-Ausgänge (je Kanal, orthogonal zu 2.9)
+
+Jeder Relaisausgang kann als **Impuls-Ausgang** (monostabil) konfiguriert werden.
+Der Schalter ist eine **Laufzeit**-Einstellung pro Kanal (nicht der Compilerschalter
+2.9) und funktioniert in **beiden** Eingangsmodi (`taster`/`rueckm`) sowie im
+Szenen-Modus.
+
+- **Konfiguration** auf `/config` je Kanal: Checkbox „Impuls" + Zahlenfeld
+  „Impulszeit" (`MIN/MAX_IMPULSE_MS = 100…2000 ms`, Default `DEFAULT_IMPULSE_MS = 300`).
+  Persistiert in `relay_impulse_enabled[]` / `relay_impulse_ms[]`
+  (`PERSIST_VERSION = 8`; Migration von v7 setzt Impuls aus / 300 ms).
+- **Aktivierung** (`set_relay(idx,true)` bzw. Szene „ein"): Ausgang geht sofort auf
+  aktiv, `impulse_active[idx]=true`, `impulse_deadline[idx]=now+relay_impulse_ms[idx]`.
+  Ein **bereits laufender Impuls wird nicht neu getriggert** (zweite Aktivierung
+  wird ignoriert). Ein **`OFF`/„aus" bricht** einen laufenden Impuls sofort ab.
+- **Parallel & nicht-blockierend:** `service_impulses()` läuft auf **core0** in der
+  Steuer-Schleife (nach Taster/Rückmeldung, unbedingt — kein `#ifdef`). Jeder Kanal
+  hat eine eigene Deadline; das Abschalten eines Kanals blockiert die anderen nie.
+- **„Low aktiv"** wirkt automatisch (steckt in `apply_relay()` über
+  `relay_gpio_value()`). **Rückmeldung** wird nur in der **EIN-Phase** geprüft; das
+  automatische Abschalten gilt als erwartet und erzeugt **keinen** Rückmeldefehler
+  (`clear_feedback()` statt `start_feedback_check()` beim Abschalten/Abbruch).
+  Sinnvoll ist Rückmeldung daher, wenn `feedback_timeout_ms ≤ Impulszeit`.
+- **Zustand/Anzeige:** `relay_states` ist während des Impulses `true`, danach `false`
+  → Web-Button und ESP-Display zeigen ein kurzes Aufblinken (kein Protokoll-Zusatz).
+- **Persistenz:** `save_config()` speichert für Impuls-Kanäle **immer** `0` als
+  Relaiszustand; frisch als Impuls markierte Kanäle werden in `handle_config_post`
+  sofort auf AUS gesetzt (kein statisches Halten).
 
 ---
 
