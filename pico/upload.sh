@@ -12,6 +12,8 @@ WIZNET_PICO_C_REF="${WIZNET_PICO_C_REF:-90136e8b522dd429f0fd966a6d30d8c95066c6e4
 JOBS="${JOBS:-$(nproc)}"
 INPUT_MODE="${INPUT_MODE:-taster}"
 WIPE_PERSIST="${WIPE_PERSIST:-0}"
+USB_FLASH="${USB_FLASH:-0}"
+PICOTOOL="${PICOTOOL:-picotool}"
 
 CLEAN=0
 POSITIONAL=()
@@ -19,6 +21,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     -c|--clean)
       CLEAN=1
+      shift
+      ;;
+    -u|--usb)
+      USB_FLASH=1
       shift
       ;;
     -m|--mode)
@@ -31,7 +37,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     -h|--help)
       cat <<EOF
-Usage: $(basename "$0") [-c|--clean] [-m|--mode taster|rueckm] [-w|--wipe-persist] [UPLOAD_DIR]
+Usage: $(basename "$0") [-c|--clean] [-m|--mode taster|rueckm] [-w|--wipe-persist] [-u|--usb] [UPLOAD_DIR]
 
 Options:
   -c, --clean          Build-Verzeichnis vor dem Bau loeschen (Clean Build)
@@ -39,12 +45,16 @@ Options:
   -w, --wipe-persist   EINMAL-Werksreset: Firmware loescht beim Boot alle
                        gespeicherten Einstellungen (Persistenz-Slots). Danach
                        OHNE dieses Flag neu flashen, sonst wird jeder Boot geloescht.
+  -u, --usb            Per picotool ueber USB flashen (ohne BOOTSEL-Taste). Der
+                       laufende Pico wird per Software in BOOTSEL versetzt.
+                       Ignoriert UPLOAD_DIR.
   -h, --help           Diese Hilfe anzeigen
 
 UPLOAD_DIR  Zielverzeichnis fuer die UF2-Datei (Default: /media/\$USER/RP2350)
 
 Umgebung:
   INPUT_MODE          Eingangsmodus (taster|rueckm), von -m/--mode ueberschrieben
+  PICOTOOL            picotool-Binary fuer -u/--usb (Default: picotool aus PATH)
   WIZNET_PICO_C_PATH  Pfad zum WIZnet-PICO-C-Checkout (Default: ${SCRIPT_DIR}/WIZnet-PICO-C)
   WIZNET_PICO_C_URL   Git-URL fuer automatisches Klonen
   WIZNET_PICO_C_REF   Gepinnter Git-Commit/Tag (Default: 90136e8b522dd429f0fd966a6d30d8c95066c6e4)
@@ -133,9 +143,21 @@ fi
 echo "==> Lokale UF2-Kopie"
 cp "${UF2_FILE}" "${LOCAL_COPY}"
 
+if [[ "${USB_FLASH}" -eq 1 ]]; then
+  if ! command -v "${PICOTOOL}" >/dev/null 2>&1; then
+    echo "Fehler: picotool nicht gefunden (${PICOTOOL})." >&2
+    echo "picotool mit USB-Support installieren oder PICOTOOL=... setzen." >&2
+    exit 1
+  fi
+  echo "==> USB-Upload via picotool (ohne BOOTSEL-Taste)"
+  "${PICOTOOL}" load -f -x "${UF2_FILE}"
+  echo "Fertig."
+  exit 0
+fi
+
 if [[ ! -d "${UPLOAD_DIR}" ]]; then
   echo "Fehler: Upload-Ziel nicht gefunden: ${UPLOAD_DIR}" >&2
-  echo "Pico mit gedrueckter BOOTSEL-Taste anstecken oder Ziel als Argument uebergeben." >&2
+  echo "Pico mit gedrueckter BOOTSEL-Taste anstecken, Ziel als Argument uebergeben oder -u/--usb nutzen." >&2
   exit 1
 fi
 
