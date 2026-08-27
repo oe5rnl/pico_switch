@@ -24,6 +24,17 @@
 SPIClass mySpi = SPIClass(VSPI);
 XPT2046_Touchscreen ts(XPT2046_CS, XPT2046_IRQ);
 
+// ----------------------------
+// Display-Orientierung (Compile-Flag)
+// Basisausrichtung Landscape = TFT_eSPI-Rotation 3. Mit -DDISPLAY_ROTATE_180
+// wird Display + Touch um 180 Grad gedreht (Rotation 1).
+// ----------------------------
+#ifdef DISPLAY_ROTATE_180
+#define DISPLAY_ROTATION 1
+#else
+#define DISPLAY_ROTATION 3
+#endif
+
 uint16_t touchScreenMinimumX = 200, touchScreenMaximumX = 3700;
 uint16_t touchScreenMinimumY = 240, touchScreenMaximumY = 3800;
 
@@ -670,10 +681,10 @@ void setup()
 
     mySpi.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
     ts.begin(mySpi);
-    ts.setRotation(3);
+    ts.setRotation(DISPLAY_ROTATION);
 
     tft.begin();
-    tft.setRotation(3);
+    tft.setRotation(DISPLAY_ROTATION);
 
     lv_disp_draw_buf_init(&draw_buf, buf, NULL, screenWidth * screenHeight / 10);
 

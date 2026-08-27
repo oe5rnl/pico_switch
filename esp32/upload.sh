@@ -9,25 +9,28 @@ PROJECT_DIR="${SCRIPT_DIR}"   # esp32/ (enthaelt platformio.ini)
 
 ENVIRONMENT="${ENVIRONMENT:-cyd}"
 UPLOAD_PORT="${UPLOAD_PORT:-}"
+ROTATE_180="${ROTATE_180:-0}"
 
 # PlatformIO wird per pipx bereitgestellt.
 export PATH="$HOME/.local/bin:$PATH"
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [-e ENV] [-p PORT] [-h]
+Usage: $(basename "$0") [-e ENV] [-p PORT] [-r] [-h]
 
 Options:
   -e ENV    PlatformIO-Environment (Default: cyd; z.B. cyd2usb)
   -p PORT   Upload-Port erzwingen (Default: Auto, sonst /dev/ttyUSB0)
+  -r        Display + Touch um 180 Grad drehen (nutzt ENV-Variante '<ENV>-rot180')
   -h        Diese Hilfe anzeigen
 EOF
 }
 
-while getopts ":e:p:h" opt; do
+while getopts ":e:p:rh" opt; do
   case "$opt" in
     e) ENVIRONMENT="$OPTARG" ;;
     p) UPLOAD_PORT="$OPTARG" ;;
+    r) ROTATE_180=1 ;;
     h) usage; exit 0 ;;
     \?) echo "Unbekannte Option: -$OPTARG" >&2; usage; exit 1 ;;
     :) echo "Option -$OPTARG benoetigt ein Argument." >&2; exit 1 ;;
@@ -37,6 +40,11 @@ done
 if ! command -v pio >/dev/null 2>&1; then
   echo "Fehler: 'pio' nicht gefunden. PlatformIO via pipx installieren." >&2
   exit 1
+fi
+
+# 180-Grad-Variante: haengt '-rot180' an das Environment an (sofern nicht schon gesetzt).
+if [[ "${ROTATE_180}" == "1" && "${ENVIRONMENT}" != *-rot180 ]]; then
+  ENVIRONMENT="${ENVIRONMENT}-rot180"
 fi
 
 # Auto-Portwahl: bevorzugt CH340 (/dev/ttyUSB*), nie den Pico-CDC (/dev/ttyACM*).
