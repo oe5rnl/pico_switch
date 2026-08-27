@@ -63,6 +63,7 @@ static bool     switch_state[SWITCH_COUNT] = { false };
 static bool     feedback_error[SWITCH_COUNT] = { false };
 static bool     button_pending[SWITCH_COUNT] = { false };  // gelb: Rueckmeldung ausstehend
 static bool     button_changed[SWITCH_COUNT] = { false };  // blau: Schalter gemischt
+static bool     button_enabled[SWITCH_COUNT] = { true, true, true, true, true, true, true, true };  // false: Button ausgeblendet
 static String   switch_names[SWITCH_COUNT];
 static lv_obj_t * switch_btns[SWITCH_COUNT]  = { nullptr };
 static lv_obj_t * switch_lbls[SWITCH_COUNT]  = { nullptr };
@@ -112,6 +113,21 @@ static bool parse_pending_changed_line(const String &line)
     if (idx < 0 || idx >= SWITCH_COUNT || (value != "ON" && value != "OFF")) return false;
     if (is_pending) button_pending[idx] = value == "ON";
     else            button_changed[idx] = value == "ON";
+    update_switch_visual(idx);
+    return true;
+}
+
+// Verarbeitet ENABLEDn:ON/OFF-Zeilen (Button aktiv/ausgeblendet).
+static bool parse_enabled_line(const String &line)
+{
+    if (!line.startsWith("ENABLED")) return false;
+    const int prefix_len = 7;
+    int colon = line.indexOf(':');
+    if (colon <= prefix_len) return false;
+    int idx = line.substring(prefix_len, colon).toInt() - 1;
+    String value = line.substring(colon + 1);
+    if (idx < 0 || idx >= SWITCH_COUNT || (value != "ON" && value != "OFF")) return false;
+    button_enabled[idx] = value == "ON";
     update_switch_visual(idx);
     return true;
 }
@@ -180,6 +196,10 @@ static bool pico_read_display_config(String &title)
 
         if (line.startsWith("IP:")) {
             set_ip_text(line.substring(3).c_str());
+            continue;
+        }
+
+        if (parse_enabled_line(line)) {
             continue;
         }
 
@@ -293,6 +313,11 @@ static void handle_pico_async_line(const String &line)
         return;
     }
 
+    if (parse_enabled_line(line)) {
+        refresh_all_buttons();
+        return;
+    }
+
     if (parse_pending_changed_line(line)) {
         refresh_all_buttons();
         return;
@@ -366,6 +391,12 @@ static void update_switch_visual(int idx)
     lv_obj_t * btn = switch_btns[idx];
     lv_obj_t * lbl = switch_lbls[idx];
     if(!btn || !lbl) return;
+
+    if(!button_enabled[idx]) {           /* inaktiver Button: komplett ausblenden */
+        lv_obj_add_flag(btn, LV_OBJ_FLAG_HIDDEN);
+        if (warn_dots[idx]) lv_obj_add_flag(warn_dots[idx], LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
 
     lv_obj_clear_flag(btn, LV_OBJ_FLAG_HIDDEN);
     if (warn_dots[idx]) lv_obj_add_flag(warn_dots[idx], LV_OBJ_FLAG_HIDDEN);

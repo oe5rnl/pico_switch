@@ -73,7 +73,7 @@ constexpr uint32_t SESSION_LIFETIME_MS = 30UL * 60UL * 1000UL;
 constexpr uint32_t SSE_KEEPALIVE_MS = 1UL * 1000UL;
 constexpr uint32_t GUEST_LIFETIME_MS = 60UL * 1000UL;
 constexpr uint32_t PERSIST_MAGIC = 0x4f453558;
-constexpr uint32_t PERSIST_VERSION = 9;
+constexpr uint32_t PERSIST_VERSION = 10;
 constexpr size_t MAX_USERS = 8;
 constexpr size_t MAX_API_KEYS = 8;
 constexpr size_t MAX_GUEST_VISITORS = 16;
@@ -258,7 +258,37 @@ struct PersistedConfigV8 {
   uint16_t relay_impulse_ms[cfg::RELAY_COUNT];
 };
 
-// Aktuelle Persistenz (V9): 3-stufige Architektur Button -> Schalter -> GPIO.
+// Persistenz-Layout V9: 3-stufige Architektur ohne Button-Aktiv-Flag.
+struct PersistedConfigV9 {
+  uint32_t magic;
+  uint32_t version;
+  uint8_t relay_states[cfg::RELAY_COUNT];
+  uint8_t public_access;
+  char relay_names[cfg::RELAY_COUNT][33];
+  char site_title[65];
+  char site_subtitle[65];
+  uint32_t user_count;
+  PersistedUser users[cfg::MAX_USERS];
+  uint32_t api_key_count;
+  PersistedApiKey api_keys[cfg::MAX_API_KEYS];
+  uint8_t static_ip[4];
+  uint8_t static_sn[4];
+  uint8_t static_gw[4];
+  uint8_t relay_active_low[cfg::RELAY_COUNT];
+  uint8_t feedback_enabled[cfg::RELAY_COUNT];
+  uint8_t feedback_active_low[cfg::RELAY_COUNT];
+  uint32_t feedback_timeout_ms;
+  uint8_t relay_impulse[cfg::RELAY_COUNT];
+  uint16_t relay_impulse_ms[cfg::RELAY_COUNT];
+  char switch_names[cfg::SWITCH_COUNT][33];
+  uint8_t switch_type[cfg::SWITCH_COUNT];
+  uint8_t switch_gpio_mask[cfg::SWITCH_COUNT];
+  uint8_t switch_state[cfg::SWITCH_COUNT];
+  char button_names[cfg::BUTTON_COUNT][33];
+  uint8_t button_switch_mask[cfg::BUTTON_COUNT];
+};
+
+// Aktuelle Persistenz (V10): 3-stufige Architektur Button -> Schalter -> GPIO.
 // Die GPIO-Stufe entspricht den bisherigen relay_*-Feldern. Szenen entfallen.
 struct PersistedConfig {
   uint32_t magic;
@@ -289,6 +319,7 @@ struct PersistedConfig {
   // Button-Stufe (oberste Stufe / Anzeige)
   char button_names[cfg::BUTTON_COUNT][33];
   uint8_t button_switch_mask[cfg::BUTTON_COUNT];  // Bit s = Schalter s gehoert zum Button
+  uint8_t button_enabled[cfg::BUTTON_COUNT];      // 1 = Button aktiv/sichtbar
 };
 
 struct User {
@@ -377,6 +408,7 @@ static std::array<bool, cfg::SWITCH_COUNT> switch_state{};        // logischer Z
 // ---- Button-Stufe (oberste Stufe / Anzeige) ------------------------------
 static std::array<std::string, cfg::BUTTON_COUNT> button_names;
 static std::array<uint8_t, cfg::BUTTON_COUNT> button_switch_mask{}; // Bit s = Schalter s gehoert zum Button
+static std::array<bool, cfg::BUTTON_COUNT> button_enabled{};        // true = Button aktiv/sichtbar
 static std::string site_title = "Relais-Steuerung";
 static std::string site_subtitle = "Relais-&Uuml;bersicht";
 static std::string esp_fw_version = "-";  // vom ESP-Display per UART gemeldet (VER:)
@@ -748,6 +780,7 @@ static void build_default_mapping() {
   }
   for (uint8_t b = 0; b < cfg::BUTTON_COUNT; ++b) {
     button_switch_mask[b] = (b < cfg::SWITCH_COUNT) ? static_cast<uint8_t>(1u << b) : 0;
+    button_enabled[b] = true;
     button_names[b] = (b < cfg::RELAY_COUNT && !relay_names[b].empty())
                           ? relay_names[b]
                           : ("Taste " + std::to_string(b + 1));
@@ -805,6 +838,7 @@ static void save_config() {
   for (uint8_t b = 0; b < cfg::BUTTON_COUNT; ++b) {
     copy_cstr(config.button_names[b], sizeof(config.button_names[b]), button_names[b]);
     config.button_switch_mask[b] = button_switch_mask[b];
+    config.button_enabled[b] = button_enabled[b] ? 1 : 0;
   }
 
   std::memset(sector.data(), 0xff, sector.size());
@@ -843,6 +877,53 @@ static ConfigLoadResult load_config() {
     }
     if (config->version != cfg::PERSIST_VERSION) {
       // Versuch, von einer alten Layout-Version zu migrieren.
+      if (config->version == 9) {
+        const PersistedConfigV9 *old_cfg = reinterpret_cast<const PersistedConfigV9 *>(config);
+        printf("Migration von Persistenz-Layout v9 -> v%lu (Slot 0x%08lx).\n",
+               static_cast<unsigned long>(cfg::PERSIST_VERSION), static_cast<unsigned long>(offset));
+        for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) {
+          if (old_cfg->relay_names[i][0]) relay_names[i] = old_cfg->relay_names[i];
+          relay_active_low[i] = old_cfg->relay_active_low[i] != 0;
+          relay_impulse[i] = old_cfg->relay_impulse[i] != 0;
+          relay_impulse_ms[i] = std::clamp<uint16_t>(old_cfg->relay_impulse_ms[i], cfg::MIN_IMPULSE_MS, cfg::MAX_IMPULSE_MS);
+          relay_states[i] = relay_impulse[i] ? false : (old_cfg->relay_states[i] != 0);
+          feedback_enabled[i] = old_cfg->feedback_enabled[i] != 0;
+          feedback_active_low[i] = old_cfg->feedback_active_low[i] != 0;
+        }
+        feedback_timeout_ms = std::clamp<uint32_t>(old_cfg->feedback_timeout_ms, cfg::MIN_INPUT_TIME_MS, cfg::MAX_INPUT_TIME_MS);
+        public_access = old_cfg->public_access != 0;
+        if (old_cfg->site_title[0]) site_title = old_cfg->site_title;
+        if (old_cfg->site_subtitle[0]) site_subtitle = old_cfg->site_subtitle;
+        users_db.clear();
+        uint32_t user_count = std::min<uint32_t>(old_cfg->user_count, cfg::MAX_USERS);
+        for (uint32_t i = 0; i < user_count; ++i) {
+          const PersistedUser &stored = old_cfg->users[i];
+          if (stored.name[0] && stored.hash[0]) users_db[normalize_username(stored.name)] = {stored.hash, stored.role[0] ? stored.role : "user"};
+        }
+        api_keys_db.clear();
+        uint32_t key_count = std::min<uint32_t>(old_cfg->api_key_count, cfg::MAX_API_KEYS);
+        for (uint32_t i = 0; i < key_count; ++i) {
+          if (old_cfg->api_keys[i].key[0]) api_keys_db.push_back({old_cfg->api_keys[i].key, old_cfg->api_keys[i].comment});
+        }
+        std::memcpy(static_ip.data(), old_cfg->static_ip, static_ip.size());
+        std::memcpy(static_sn.data(), old_cfg->static_sn, static_sn.size());
+        std::memcpy(static_gw.data(), old_cfg->static_gw, static_gw.size());
+        for (uint8_t s = 0; s < cfg::SWITCH_COUNT; ++s) {
+          if (old_cfg->switch_names[s][0]) switch_names[s] = old_cfg->switch_names[s];
+          else switch_names[s] = "Schalter " + std::to_string(s + 1);
+          switch_type[s] = old_cfg->switch_type[s] ? 1 : 0;
+          switch_gpio_mask[s] = old_cfg->switch_gpio_mask[s];
+          switch_state[s] = old_cfg->switch_state[s] != 0;
+        }
+        for (uint8_t b = 0; b < cfg::BUTTON_COUNT; ++b) {
+          if (old_cfg->button_names[b][0]) button_names[b] = old_cfg->button_names[b];
+          else button_names[b] = "Taste " + std::to_string(b + 1);
+          button_switch_mask[b] = old_cfg->button_switch_mask[b];
+          button_enabled[b] = true;  // V9 kannte kein Aktiv-Flag -> alle aktiv
+        }
+        migrated = true;
+        break;
+      }
       if (config->version == 8) {
         const PersistedConfigV8 *old_cfg = reinterpret_cast<const PersistedConfigV8 *>(config);
         printf("Migration von Persistenz-Layout v8 -> v%lu (Slot 0x%08lx).\n",
@@ -1135,6 +1216,7 @@ static ConfigLoadResult load_config() {
       if (config->button_names[b][0]) button_names[b] = config->button_names[b];
       else button_names[b] = "Taste " + std::to_string(b + 1);
       button_switch_mask[b] = config->button_switch_mask[b];
+      button_enabled[b] = config->button_enabled[b] != 0;
     }
     return ConfigLoadResult::Loaded;
   }
@@ -1509,6 +1591,11 @@ static std::string state_json(bool include_users) {
     if (b) out += ',';
     out += (button_disp_state(b) == 2) ? "true" : "false";
   }
+  out += "],\"enabled\":[";
+  for (uint8_t b = 0; b < cfg::BUTTON_COUNT; ++b) {
+    if (b) out += ',';
+    out += button_enabled[b] ? "true" : "false";
+  }
   out += ']';
 #ifdef INPUT_MODE_BUTTON
   out += ",\"buttons\":[";
@@ -1756,6 +1843,7 @@ static std::string build_config_html(const Session *session) {
     const std::string bi = std::to_string(b);
     button_rows += "<div class=\"row relay-config\"><label>Taste " + std::to_string(b + 1) + "</label>"
                    "<input maxlength=\"32\" value=\"" + html_escape(button_names[b]) + "\" data-bname=\"" + bi + "\">"
+                   "<label class=\"checklbl\" title=\"Button aktiv/sichtbar\"><input type=\"checkbox\" data-ben=\"" + bi + "\"" + std::string(button_enabled[b] ? " checked" : "") + "> aktiv</label>"
                    "<span class=\"tinfo\">Schalter:</span>";
     for (uint8_t s = 0; s < cfg::SWITCH_COUNT; ++s) {
       button_rows += "<label class=\"checklbl\"><input type=\"checkbox\" data-bs=\"" + bi + "\" data-s=\"" + std::to_string(s) + "\"" + std::string((button_switch_mask[b] & (1u << s)) ? " checked" : "") + "> " + std::to_string(s + 1) + "</label>";
@@ -1763,7 +1851,7 @@ static std::string build_config_html(const Session *session) {
     button_rows += "</div>";
   }
   const std::string gpio_heading = "<h2 style=\"color:#bdbdbd;font-size:1rem;margin:18px 0 8px\">GPIO-Ausgaenge</h2>";
-  std::string html = "<!DOCTYPE html><html lang=\"de\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + html_escape(site_title) + " - Konfiguration</title><style>html,body{margin:0}body{box-sizing:border-box;font-family:'Segoe UI',sans-serif;background:#121212;color:#e0e0e0;min-height:100vh;padding:108px 24px 24px}" + page_header_css() + "h1{color:#4dabf7}.card{background:#1e1e1e;padding:24px;max-width:980px;border:1px solid #2d2d2d}.row{display:flex;gap:12px;margin-bottom:12px;align-items:center}.row>label:first-child{width:160px;color:#9e9e9e;white-space:nowrap}.row>input{flex:1;min-width:180px;background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:8px}.row .checklbl{flex:none;width:auto;display:flex;align-items:center;gap:4px;color:#9e9e9e;white-space:nowrap}.row .checklbl input{width:auto;margin:0}.relay-config{flex-wrap:wrap;border-top:1px solid #2d2d2d;padding-top:10px}.relay-config>input{flex:0 1 auto;min-width:90px;max-width:50%}.number-input{max-width:160px}" + std::string(led_css) + ".actions button{margin:0}button{padding:10px 14px;margin:4px;background:#1a3a5c;color:#4dabf7;border:1px solid #1e5a9e;font-weight:700}.save{background:#1b4332;color:#51cf66;border-color:#2d6a4f}.danger{background:#3d1515;color:#ff6b6b;border-color:#7a2020}.ok{color:#51cf66}.err{color:#ff6b6b}</style></head><body>" + page_header_html(session, true) + "<h1>Konfiguration</h1><div class=\"actions\"><button onclick=\"location.href='/'\">Zurueck</button><button class=\"save\" onclick=\"save()\">Speichern</button><button onclick=\"location.href='/admin'\">Benutzer/API</button><button onclick=\"location.href='/network'\">Network</button><button class=\"danger\" onclick=\"location.href='/logout'\">Abmelden</button></div><div id=\"msg\"></div><div class=\"card\"><div class=\"row\"><label>Titel</label><input id=\"title\" maxlength=\"64\" value=\"" + html_escape(site_title) + "\"></div><div class=\"row\"><label>Ueberschrift</label><input id=\"subtitle\" maxlength=\"64\" value=\"" + html_escape(site_subtitle) + "\"></div><div class=\"row\"><label>Oeffentlich</label><input type=\"checkbox\" id=\"pub\" style=\"flex:none;width:auto;padding:0;margin:0;border:none;background:none\" " + std::string(public_access ? "checked" : "") + "></div><div class=\"row\"><label>" + std::string(time_label) + "</label><input class=\"number-input\" type=\"number\" id=\"fbtimeout\" min=\"" + time_min + "\" max=\"" + time_max + "\" value=\"" + std::to_string(feedback_timeout_ms) + "\"><span>ms</span></div>" + button_rows + switch_rows + gpio_heading + rows + "</div><script>const conn=document.getElementById('conn');const msg=document.getElementById('msg');let lastSseActivity=0;let lastConnectAttempt=0;let es=null;let reconnectTimer=0;function markConn(ok){conn.textContent=ok?'Verbunden':'Getrennt';conn.className=ok?'ok':'err'}function noteSseActivity(){lastSseActivity=Date.now();markConn(true)}function scheduleReconnect(delay=1000){if(reconnectTimer)return;reconnectTimer=setTimeout(()=>{reconnectTimer=0;connectEvents()},delay)}function forceReconnect(){if(es){es.close();es=null}scheduleReconnect(0)}function connectEvents(){if(es)es.close();lastConnectAttempt=Date.now();es=new EventSource('/events');es.onopen=()=>{noteSseActivity()};es.onerror=()=>{markConn(false);if(es){es.close();es=null}scheduleReconnect()};es.addEventListener('ping',()=>{noteSseActivity()});es.onmessage=()=>{noteSseActivity()}}connectEvents();window.addEventListener('pagehide',()=>{if(es)es.close()});setInterval(()=>{const now=Date.now();const activeLink=lastSseActivity&&now-lastSseActivity<2500;markConn(!!activeLink);if(!activeLink&&now-lastConnectAttempt>=2500&&!reconnectTimer)forceReconnect()},1000);function save(){const names=[...document.querySelectorAll('input[data-idx]')].map((e,i)=>e.value.trim()||('Relais '+(i+1)));const bools=a=>[...document.querySelectorAll(a)].map(e=>e.checked);const snames=[...document.querySelectorAll('input[data-sname]')].map((e,i)=>e.value.trim()||('Schalter '+(i+1)));const stype=[...document.querySelectorAll('select[data-stype]')].map(e=>Number(e.value)||0);const sgpio=[...Array(8).keys()].map(s=>{let m=0;document.querySelectorAll('input[data-sg=\"'+s+'\"]').forEach(e=>{if(e.checked)m|=1<<(+e.dataset.g)});return m});const bnames=[...document.querySelectorAll('input[data-bname]')].map((e,i)=>e.value.trim()||('Taste '+(i+1)));const bswitch=[...Array(8).keys()].map(b=>{let m=0;document.querySelectorAll('input[data-bs=\"'+b+'\"]').forEach(e=>{if(e.checked)m|=1<<(+e.dataset.s)});return m});const timeout=Math.max(" + time_min + ",Math.min(" + time_max + ",Number(document.getElementById('fbtimeout').value)||" + time_def + "));fetch('/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({names,act_low:bools('input[data-low]'),impulse:bools('input[data-imp]'),impulse_ms:[...document.querySelectorAll('input[data-impms]')].map(e=>Math.max(100,Math.min(2000,Number(e.value)||300))),feedback_enabled:bools('input[data-fb]'),feedback_low:bools('input[data-fblow]'),switch_names:snames,switch_type:stype,switch_gpio:sgpio,button_names:bnames,button_switch:bswitch,feedback_timeout:timeout,title:document.getElementById('title').value,subtitle:document.getElementById('subtitle').value,public:document.getElementById('pub').checked})}).then(r=>r.json()).then(()=>{msg.textContent='OK gespeichert';msg.className='ok';const nt=document.getElementById('title').value.trim();if(nt){const st=document.getElementById('sitetitle');if(st)st.textContent=nt;document.title=nt+' - Konfiguration'}}).catch(()=>{msg.textContent='Fehler';msg.className='err'})}" + std::string(led_js) + "</script></body></html>";
+  std::string html = "<!DOCTYPE html><html lang=\"de\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + html_escape(site_title) + " - Konfiguration</title><style>html,body{margin:0}body{box-sizing:border-box;font-family:'Segoe UI',sans-serif;background:#121212;color:#e0e0e0;min-height:100vh;padding:108px 24px 24px}" + page_header_css() + "h1{color:#4dabf7}.card{background:#1e1e1e;padding:24px;max-width:980px;border:1px solid #2d2d2d}.row{display:flex;gap:12px;margin-bottom:12px;align-items:center}.row>label:first-child{width:160px;color:#9e9e9e;white-space:nowrap}.row>input{flex:1;min-width:180px;background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:8px}.row .checklbl{flex:none;width:auto;display:flex;align-items:center;gap:4px;color:#9e9e9e;white-space:nowrap}.row .checklbl input{width:auto;margin:0}.relay-config{flex-wrap:wrap;border-top:1px solid #2d2d2d;padding-top:10px}.relay-config>input{flex:0 1 auto;min-width:90px;max-width:50%}.number-input{max-width:160px}" + std::string(led_css) + ".actions button{margin:0}button{padding:10px 14px;margin:4px;background:#1a3a5c;color:#4dabf7;border:1px solid #1e5a9e;font-weight:700}.save{background:#1b4332;color:#51cf66;border-color:#2d6a4f}.danger{background:#3d1515;color:#ff6b6b;border-color:#7a2020}.ok{color:#51cf66}.err{color:#ff6b6b}</style></head><body>" + page_header_html(session, true) + "<h1>Konfiguration</h1><div class=\"actions\"><button onclick=\"location.href='/'\">Zurueck</button><button class=\"save\" onclick=\"save()\">Speichern</button><button onclick=\"location.href='/admin'\">Benutzer/API</button><button onclick=\"location.href='/network'\">Network</button><button class=\"danger\" onclick=\"location.href='/logout'\">Abmelden</button></div><div id=\"msg\"></div><div class=\"card\"><div class=\"row\"><label>Titel</label><input id=\"title\" maxlength=\"64\" value=\"" + html_escape(site_title) + "\"></div><div class=\"row\"><label>Ueberschrift</label><input id=\"subtitle\" maxlength=\"64\" value=\"" + html_escape(site_subtitle) + "\"></div><div class=\"row\"><label>Oeffentlich</label><input type=\"checkbox\" id=\"pub\" style=\"flex:none;width:auto;padding:0;margin:0;border:none;background:none\" " + std::string(public_access ? "checked" : "") + "></div><div class=\"row\"><label>" + std::string(time_label) + "</label><input class=\"number-input\" type=\"number\" id=\"fbtimeout\" min=\"" + time_min + "\" max=\"" + time_max + "\" value=\"" + std::to_string(feedback_timeout_ms) + "\"><span>ms</span></div>" + button_rows + switch_rows + gpio_heading + rows + "</div><script>const conn=document.getElementById('conn');const msg=document.getElementById('msg');let lastSseActivity=0;let lastConnectAttempt=0;let es=null;let reconnectTimer=0;function markConn(ok){conn.textContent=ok?'Verbunden':'Getrennt';conn.className=ok?'ok':'err'}function noteSseActivity(){lastSseActivity=Date.now();markConn(true)}function scheduleReconnect(delay=1000){if(reconnectTimer)return;reconnectTimer=setTimeout(()=>{reconnectTimer=0;connectEvents()},delay)}function forceReconnect(){if(es){es.close();es=null}scheduleReconnect(0)}function connectEvents(){if(es)es.close();lastConnectAttempt=Date.now();es=new EventSource('/events');es.onopen=()=>{noteSseActivity()};es.onerror=()=>{markConn(false);if(es){es.close();es=null}scheduleReconnect()};es.addEventListener('ping',()=>{noteSseActivity()});es.onmessage=()=>{noteSseActivity()}}connectEvents();window.addEventListener('pagehide',()=>{if(es)es.close()});setInterval(()=>{const now=Date.now();const activeLink=lastSseActivity&&now-lastSseActivity<2500;markConn(!!activeLink);if(!activeLink&&now-lastConnectAttempt>=2500&&!reconnectTimer)forceReconnect()},1000);function save(){const names=[...document.querySelectorAll('input[data-idx]')].map((e,i)=>e.value.trim()||('Relais '+(i+1)));const bools=a=>[...document.querySelectorAll(a)].map(e=>e.checked);const snames=[...document.querySelectorAll('input[data-sname]')].map((e,i)=>e.value.trim()||('Schalter '+(i+1)));const stype=[...document.querySelectorAll('select[data-stype]')].map(e=>Number(e.value)||0);const sgpio=[...Array(8).keys()].map(s=>{let m=0;document.querySelectorAll('input[data-sg=\"'+s+'\"]').forEach(e=>{if(e.checked)m|=1<<(+e.dataset.g)});return m});const bnames=[...document.querySelectorAll('input[data-bname]')].map((e,i)=>e.value.trim()||('Taste '+(i+1)));const bswitch=[...Array(8).keys()].map(b=>{let m=0;document.querySelectorAll('input[data-bs=\"'+b+'\"]').forEach(e=>{if(e.checked)m|=1<<(+e.dataset.s)});return m});const benabled=bools('input[data-ben]');const timeout=Math.max(" + time_min + ",Math.min(" + time_max + ",Number(document.getElementById('fbtimeout').value)||" + time_def + "));fetch('/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({names,act_low:bools('input[data-low]'),impulse:bools('input[data-imp]'),impulse_ms:[...document.querySelectorAll('input[data-impms]')].map(e=>Math.max(100,Math.min(2000,Number(e.value)||300))),feedback_enabled:bools('input[data-fb]'),feedback_low:bools('input[data-fblow]'),switch_names:snames,switch_type:stype,switch_gpio:sgpio,button_names:bnames,button_switch:bswitch,button_enabled:benabled,feedback_timeout:timeout,title:document.getElementById('title').value,subtitle:document.getElementById('subtitle').value,public:document.getElementById('pub').checked})}).then(r=>r.json()).then(()=>{msg.textContent='OK gespeichert';msg.className='ok';const nt=document.getElementById('title').value.trim();if(nt){const st=document.getElementById('sitetitle');if(st)st.textContent=nt;document.title=nt+' - Konfiguration'}}).catch(()=>{msg.textContent='Fehler';msg.className='err'})}" + std::string(led_js) + "</script></body></html>";
   return html;
 }
 
@@ -2017,6 +2105,7 @@ static void handle_config_post(uint8_t sn, const HttpRequest &req) {
     update_uint8_array_from_json(req.body, "switch_gpio", switch_gpio_mask, 0xff);
     update_string_array_from_json(req.body, "button_names", button_names);
     update_uint8_array_from_json(req.body, "button_switch", button_switch_mask, 0xff);
+    update_bool_array_from_json(req.body, "button_enabled", button_enabled);
     feedback_timeout_ms = std::clamp<uint32_t>(json_uint_value(req.body, "feedback_timeout", feedback_timeout_ms),
                                                 cfg::MIN_INPUT_TIME_MS,
                                                 cfg::MAX_INPUT_TIME_MS);
@@ -2442,7 +2531,7 @@ static std::string build_index_html(const Session *session, bool can_control) {
   } else {
     body_section = "<div class=\"notice\"><p>Bitte <a href=\"/login?next=/\">anmelden</a>, </p></div>";
   }
-  std::string html = "<!DOCTYPE html><html lang=\"de\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + html_escape(site_title) + "</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Segoe UI',system-ui,sans-serif;background:#0d1117;color:#c9d1d9;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:20px 16px 40px}" + page_header_css() + "h1{margin:92px 0 24px;font-size:1.4rem;color:#e6edf3;font-weight:600;text-align:center}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;width:100%;max-width:800px}.card{width:100%;background:#161b22;border:1px solid #30363d;padding:10px;display:flex;align-items:center;cursor:pointer;text-align:inherit;font:inherit;color:inherit}.card.on{border-color:#238636}.card.pending{background:#4a3a10;border-color:#d4a72c}.card.pending .label,.card.pending .state{color:#f0c674}.card.changed{border-color:#1f6feb}.card.changed .state{color:#58a6ff}.card.error{background:#5a1616;border-color:#f85149}.card.error .label,.card.error .state{color:#fff}.card.on.dirty{position:relative}.card.on.dirty::after{content:'';position:absolute;top:4px;right:4px;width:10px;height:10px;border-radius:50%;background:#f85149}.card:focus-visible{outline:2px solid #58a6ff;outline-offset:2px}.relay-row{display:flex;align-items:center;gap:10px;width:100%}.label{flex:1;font-size:.9rem;font-weight:700;color:#8b949e;text-transform:uppercase;text-align:left}.relay-num{flex:none;font-size:.65rem;color:#484f58;min-width:24px}.state{flex:none;min-width:38px;font-size:.9rem;font-weight:700;color:#8b949e;text-align:right}.card.on .state{color:#3fb950}.notice{background:#161b22;border:1px solid #30363d;padding:24px 28px;color:#c9d1d9;font-size:.95rem;text-align:center;max-width:560px}.notice a{color:#58a6ff;font-weight:700}</style></head><body data-user=\"" + html_escape(current_session_username(session)) + "\" data-can-control=\"" + (can_control ? "1" : "0") + "\">" + page_header_html(session, true) + "<h1 id=\"subtitle\">" + html_escape(site_subtitle) + "</h1>" + body_section + "<script>const initialState=" + state_json(session != nullptr || public_access) + ";const canControl=document.body.dataset.canControl==='1';const grid=document.getElementById('grid');const conn=document.getElementById('conn');const other=document.getElementById('other-users');const currentUser=document.body.dataset.user;let names=(initialState.names&&initialState.names.length)?initialState.names:Array.from({length:8},(_,i)=>'Relais '+(i+1));if(grid&&canControl){const initialRelays=initialState.relays||[];const initialErrors=initialState.feedback_errors||[];const initialPending=initialState.pending||[];const initialChanged=initialState.changed||[];function cardCls(on,err,pend,chg){return 'card'+(err?' error':pend?' pending':on?' on':chg?' changed':'')}for(let i=0;i<8;i++){const on=!!initialRelays[i];const card=document.createElement('button');card.type='button';card.className=cardCls(on,initialErrors[i],initialPending[i],initialChanged[i]);card.id='c'+i;card.onclick=()=>toggle(i);card.innerHTML=`<div class=\"relay-row\"><span class=\"relay-num\">#${i+1}</span><span class=\"label\" id=\"l${i}\">${names[i]}</span><span class=\"state\" id=\"s${i}\">${on?'ON':'OFF'}</span></div>`;grid.appendChild(card)}}function renderActiveUsers(users){if(!other)return;if(users===null){other.style.display='none';return}other.style.display='';const list=(users||[]).filter(u=>!currentUser||currentUser==='-'||u.username!==currentUser);if(!list.length){other.textContent='Andere Benutzer: -';other.title='Keine anderen aktiven Anmeldungen';return}const text=list.map(u=>u.username+' ('+u.remaining+' min)').join(', ');other.textContent='Andere Benutzer: '+text;other.title=text}function applyState(states,ns,users,errors=[],pending=[],changed=[]){if(ns)names=ns;if(canControl&&states)states.forEach((on,i)=>{const lbl=document.getElementById('l'+i);if(!lbl)return;lbl.textContent=names[i];const state=document.getElementById('s'+i);const c=document.getElementById('c'+i);state.textContent=on?'ON':'OFF';c.className=cardCls(on,errors[i],pending[i],changed[i])});renderActiveUsers(users)}renderActiveUsers(initialState.active_users);function toggle(i){fetch('/relay/'+i+'/toggle',{method:'POST',credentials:'same-origin'}).then(r=>{if(r.status===401){location.href='/login?next=/';throw new Error('unauthorized')}if(!r.ok)throw new Error('HTTP '+r.status);return r.json()}).then(d=>{applyState(d.relays,d.names,d.active_users,d.feedback_errors,d.pending,d.changed)}).catch(()=>{conn.textContent='Fehler';conn.className='err'})}let lastSseActivity=0;let lastConnectAttempt=0;let es=null;let reconnectTimer=0;function markConn(ok){conn.textContent=ok?'Verbunden':'Getrennt';conn.className=ok?'ok':'err'}function noteSseActivity(){lastSseActivity=Date.now();markConn(true)}function scheduleReconnect(delay=1000){if(reconnectTimer)return;reconnectTimer=setTimeout(()=>{reconnectTimer=0;connectEvents()},delay)}function forceReconnect(){if(es){es.close();es=null}scheduleReconnect(0)}function connectEvents(){if(es)es.close();lastConnectAttempt=Date.now();es=new EventSource('/events');es.onopen=()=>{noteSseActivity()};es.onerror=()=>{markConn(false);if(es){es.close();es=null}scheduleReconnect()};es.addEventListener('ping',()=>{noteSseActivity()});es.onmessage=e=>{noteSseActivity();try{const d=JSON.parse(e.data);applyState(d.relays,d.names,d.active_users,d.feedback_errors,d.pending,d.changed);if(d.title){document.getElementById('sitetitle').textContent=d.title;document.title=d.title}if(d.subtitle)document.getElementById('subtitle').innerHTML=d.subtitle}catch(x){}}}connectEvents();window.addEventListener('pagehide',()=>{if(es)es.close()});setInterval(()=>{const now=Date.now();const activeLink=lastSseActivity&&now-lastSseActivity<2500;markConn(!!activeLink);if(!activeLink&&now-lastConnectAttempt>=2500&&!reconnectTimer)forceReconnect()},1000);</script></body></html>";
+  std::string html = "<!DOCTYPE html><html lang=\"de\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + html_escape(site_title) + "</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Segoe UI',system-ui,sans-serif;background:#0d1117;color:#c9d1d9;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:20px 16px 40px}" + page_header_css() + "h1{margin:92px 0 24px;font-size:1.4rem;color:#e6edf3;font-weight:600;text-align:center}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;width:100%;max-width:800px}.card{width:100%;background:#161b22;border:1px solid #30363d;padding:10px;display:flex;align-items:center;cursor:pointer;text-align:inherit;font:inherit;color:inherit}.card.on{border-color:#238636}.card.pending{background:#4a3a10;border-color:#d4a72c}.card.pending .label,.card.pending .state{color:#f0c674}.card.changed{border-color:#1f6feb}.card.changed .state{color:#58a6ff}.card.error{background:#5a1616;border-color:#f85149}.card.error .label,.card.error .state{color:#fff}.card.on.dirty{position:relative}.card.on.dirty::after{content:'';position:absolute;top:4px;right:4px;width:10px;height:10px;border-radius:50%;background:#f85149}.card:focus-visible{outline:2px solid #58a6ff;outline-offset:2px}.relay-row{display:flex;align-items:center;gap:10px;width:100%}.label{flex:1;font-size:.9rem;font-weight:700;color:#8b949e;text-transform:uppercase;text-align:left}.relay-num{flex:none;font-size:.65rem;color:#484f58;min-width:24px}.state{flex:none;min-width:38px;font-size:.9rem;font-weight:700;color:#8b949e;text-align:right}.card.on .state{color:#3fb950}.notice{background:#161b22;border:1px solid #30363d;padding:24px 28px;color:#c9d1d9;font-size:.95rem;text-align:center;max-width:560px}.notice a{color:#58a6ff;font-weight:700}</style></head><body data-user=\"" + html_escape(current_session_username(session)) + "\" data-can-control=\"" + (can_control ? "1" : "0") + "\">" + page_header_html(session, true) + "<h1 id=\"subtitle\">" + html_escape(site_subtitle) + "</h1>" + body_section + "<script>const initialState=" + state_json(session != nullptr || public_access) + ";const canControl=document.body.dataset.canControl==='1';const grid=document.getElementById('grid');const conn=document.getElementById('conn');const other=document.getElementById('other-users');const currentUser=document.body.dataset.user;let names=(initialState.names&&initialState.names.length)?initialState.names:Array.from({length:8},(_,i)=>'Relais '+(i+1));if(grid&&canControl){const initialRelays=initialState.relays||[];const initialErrors=initialState.feedback_errors||[];const initialPending=initialState.pending||[];const initialChanged=initialState.changed||[];const initialEnabled=initialState.enabled||[];function cardCls(on,err,pend,chg){return 'card'+(err?' error':pend?' pending':on?' on':chg?' changed':'')}for(let i=0;i<8;i++){const on=!!initialRelays[i];const card=document.createElement('button');card.type='button';card.className=cardCls(on,initialErrors[i],initialPending[i],initialChanged[i]);card.id='c'+i;card.onclick=()=>toggle(i);card.innerHTML=`<div class=\"relay-row\"><span class=\"relay-num\">#${i+1}</span><span class=\"label\" id=\"l${i}\">${names[i]}</span><span class=\"state\" id=\"s${i}\">${on?'ON':'OFF'}</span></div>`;if(initialEnabled[i]===false)card.style.display='none';grid.appendChild(card)}}function renderActiveUsers(users){if(!other)return;if(users===null){other.style.display='none';return}other.style.display='';const list=(users||[]).filter(u=>!currentUser||currentUser==='-'||u.username!==currentUser);if(!list.length){other.textContent='Andere Benutzer: -';other.title='Keine anderen aktiven Anmeldungen';return}const text=list.map(u=>u.username+' ('+u.remaining+' min)').join(', ');other.textContent='Andere Benutzer: '+text;other.title=text}function applyState(states,ns,users,errors=[],pending=[],changed=[],enabled=[]){if(ns)names=ns;if(canControl&&states)states.forEach((on,i)=>{const lbl=document.getElementById('l'+i);if(!lbl)return;lbl.textContent=names[i];const state=document.getElementById('s'+i);const c=document.getElementById('c'+i);state.textContent=on?'ON':'OFF';c.className=cardCls(on,errors[i],pending[i],changed[i]);if(c)c.style.display=(enabled[i]===false)?'none':''});renderActiveUsers(users)}renderActiveUsers(initialState.active_users);function toggle(i){fetch('/relay/'+i+'/toggle',{method:'POST',credentials:'same-origin'}).then(r=>{if(r.status===401){location.href='/login?next=/';throw new Error('unauthorized')}if(!r.ok)throw new Error('HTTP '+r.status);return r.json()}).then(d=>{applyState(d.relays,d.names,d.active_users,d.feedback_errors,d.pending,d.changed,d.enabled)}).catch(()=>{conn.textContent='Fehler';conn.className='err'})}let lastSseActivity=0;let lastConnectAttempt=0;let es=null;let reconnectTimer=0;function markConn(ok){conn.textContent=ok?'Verbunden':'Getrennt';conn.className=ok?'ok':'err'}function noteSseActivity(){lastSseActivity=Date.now();markConn(true)}function scheduleReconnect(delay=1000){if(reconnectTimer)return;reconnectTimer=setTimeout(()=>{reconnectTimer=0;connectEvents()},delay)}function forceReconnect(){if(es){es.close();es=null}scheduleReconnect(0)}function connectEvents(){if(es)es.close();lastConnectAttempt=Date.now();es=new EventSource('/events');es.onopen=()=>{noteSseActivity()};es.onerror=()=>{markConn(false);if(es){es.close();es=null}scheduleReconnect()};es.addEventListener('ping',()=>{noteSseActivity()});es.onmessage=e=>{noteSseActivity();try{const d=JSON.parse(e.data);applyState(d.relays,d.names,d.active_users,d.feedback_errors,d.pending,d.changed,d.enabled);if(d.title){document.getElementById('sitetitle').textContent=d.title;document.title=d.title}if(d.subtitle)document.getElementById('subtitle').innerHTML=d.subtitle}catch(x){}}}connectEvents();window.addEventListener('pagehide',()=>{if(es)es.close()});setInterval(()=>{const now=Date.now();const activeLink=lastSseActivity&&now-lastSseActivity<2500;markConn(!!activeLink);if(!activeLink&&now-lastConnectAttempt>=2500&&!reconnectTimer)forceReconnect()},1000);</script></body></html>";
   return html;
 }
 static void init_users() {
@@ -2514,6 +2603,8 @@ static void send_states() {
   StateLock lock;
   for (uint8_t i = 0; i < cfg::BUTTON_COUNT; ++i) {
     const uint8_t disp = button_disp_state(i);
+    uart_puts(UART, ("ENABLED" + std::to_string(i + 1) + ":").c_str());
+    uart_puts(UART, button_enabled[i] ? "ON\n" : "OFF\n");
     uart_puts(UART, ("STATE" + std::to_string(i + 1) + ":").c_str());
     uart_puts(UART, (disp == 1) ? "ON\n" : "OFF\n");
     uart_puts(UART, ("ERROR" + std::to_string(i + 1) + ":").c_str());

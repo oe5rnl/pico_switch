@@ -74,15 +74,16 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
 
 ### 2.3 Persistenz (Flash)
 
-- Struktur `PersistedConfig` (aktuell `PERSIST_VERSION = 9`), passt in einen Flash-Sektor.
-- Versionierte Migration: `PersistedConfigV1` bis `V8` → aktuell (V8 hatte noch Szenen,
-  wird per 1:1-Standardzuordnung migriert).
+- Struktur `PersistedConfig` (aktuell `PERSIST_VERSION = 10`), passt in einen Flash-Sektor.
+- Versionierte Migration: `PersistedConfigV1` bis `V9` → aktuell (V8 hatte noch Szenen,
+  wird per 1:1-Standardzuordnung migriert; V9→V10 setzt alle Buttons auf „aktiv").
 - Gespeichert: GPIO-Zustände, Namen, Titel/Untertitel, `public_access`,
   Benutzer, API-Keys, statische IP/SN/GW, Ausgangspolaritäten,
   Rückmeldeaktivierung/-polarität, gemeinsame Rückmeldezeit, je Ausgang
   Impuls-Aktivierung und Impulszeit (100–2000 ms) sowie die **Button→Schalter→GPIO-
   Zuordnung** (Schalter-Namen, Schalter-Typ toggle/bistabil, Schalter→GPIO-Maske,
-  Schalter-Zustand, Button-Namen, Button→Schalter-Maske).
+  Schalter-Zustand, Button-Namen, Button→Schalter-Maske, **Button-Aktiv-Flag**
+  `button_enabled`).
 - CMake-Check `check_persist_overlap.cmake` stellt sicher, dass der Flash-Slot
   nicht mit dem Binär-Image kollidiert.
 
@@ -93,12 +94,12 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
 | GET | `/`, `/index.html` | Haupt-UI |
 | GET/POST | `/login`, `/logout` | Authentifizierung |
 | GET/POST | `/password` | Passwort ändern |
-| GET/POST | `/config` | Titel/Namen/`public_access`, Ausgangspolarität (Low aktiv), je Ausgang Impuls (Checkbox + Impulszeit 100–2000 ms, Default 300), Rückmeldung + Rückmeldezeit; zusätzlich die **Schalter** (Name, Typ toggle/bistabil, GPIO-Zuordnung per Checkboxen) und **Buttons** (Name, Schalter-Zuordnung per Checkboxen). Im Taster-Modus (2.9) entfallen die Felder „Rückmeldung"/„Rückm. LOW"; stattdessen erscheinen „Taster GPxx" + Pseudo-LED und „Taster-Entprellzeit" |
+| GET/POST | `/config` | Titel/Namen/`public_access`, Ausgangspolarität (Low aktiv), je Ausgang Impuls (Checkbox + Impulszeit 100–2000 ms, Default 300), Rückmeldung + Rückmeldezeit; zusätzlich die **Buttons** (Name, **Checkbox „aktiv"** = sichtbar, Schalter-Zuordnung per Checkboxen), die **Schalter** (Name, Typ toggle/bistabil, GPIO-Zuordnung per Checkboxen) und die GPIOs. Reihenfolge auf der Seite: Buttons → Schalter → GPIOs. Im Taster-Modus (2.9) entfallen die Felder „Rückmeldung"/„Rückm. LOW"; stattdessen erscheinen „Taster GPxx" + Pseudo-LED und „Taster-Entprellzeit" |
 | GET/POST | `/network` | Statische IP-Einstellungen |
 | GET/POST | `/admin` | Benutzer-/API-Key-Verwaltung |
 | GET | `/me` | Aktueller Benutzer |
 | GET | `/active_users` | Aktive Sessions/Gäste |
-| GET | `/state` | Button-Zustand (JSON: `relays`=Button ein, `pending`, `changed`, `feedback_errors`; im Taster-Modus zusätzlich `buttons`) |
+| GET | `/state` | Button-Zustand (JSON: `relays`=Button ein, `pending`, `changed`, `feedback_errors`, `enabled`=Button aktiv/sichtbar; im Taster-Modus zusätzlich `buttons`) |
 | GET | `/events` | Server-Sent Events (Live-Status) |
 | POST | `/relay/<idx>/<on\|off\|toggle>` | Button `idx` schalten (setzt/toggelt alle zugeordneten Schalter) |
 
@@ -120,6 +121,9 @@ Dreistufiges Modell (je max. 8 Einheiten pro Ebene, konfigurierbar auf `/config`
 - **Button** (obere Ebene, Web + ESP-Display) — treibt eine **Schalter-Maske**
   (1–8 Schalter). `set_button(b,on)` setzt alle zugeordneten Schalter,
   `toggle_button(b)` schaltet um (an nur, wenn der Button-Anzeigezustand „ein" ist).
+  Ein Button kann per Config-Checkbox **inaktiv** (`button_enabled=false`) gesetzt
+  werden; inaktive Buttons werden auf der Web-UI **und** dem ESP-Display
+  ausgeblendet (analog zu den früher deaktivierten Szenen).
 
 Aggregierter **Button-Anzeigezustand** (`button_disp_state`): `0` = alle Schalter aus
 (grau), `1` = alle ein (grün), `2` = gemischt (blau/`changed`). Zusätzlich pro Button
@@ -302,6 +306,7 @@ Lokales Touch-Terminal (Board ESP32-2432S028, „CYD"), LVGL 8 + TFT_eSPI + XPT2
 | `SUBTITLE:<text>` | Untertitel |
 | `NAMEn:<text>` | Name von Button `n` |
 | `STATEn:ON` / `STATEn:OFF` | Button `n` ein (alle Schalter ein) / sonst |
+| `ENABLEDn:ON` / `ENABLEDn:OFF` | Button `n` aktiv/sichtbar (OFF → Button auf dem Display ausblenden) |
 | `ERRORn:ON` / `ERRORn:OFF` | Rückmeldefehler von Button `n` (rot) |
 | `PENDINGn:ON` / `PENDINGn:OFF` | Impuls-/Rückmeldewartezeit von Button `n` (gelb) |
 | `CHANGEDn:ON` / `CHANGEDn:OFF` | Button `n` gemischt (blau/unbestimmt) |
