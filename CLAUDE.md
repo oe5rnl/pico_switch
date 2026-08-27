@@ -46,10 +46,12 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
 
 | Konstante | Wert | Bedeutung |
 |---|---|---|
-| `RELAY_COUNT` | 8 | Anzahl der Relais/Kanäle |
-| `SCENE_COUNT` | 8 | Anzahl konfigurierbarer Szenen |
-| `RELAY_PINS` | `{2,3,4,5,6,7,8,9}` | GPIO-Pins der Relais |
-| `FEEDBACK_PINS` | `{10,11,12,13,14,26,27,28}` | GPIO-Eingänge: Rückmeldungen **oder** Taster (je nach `INPUT_MODE`, siehe 2.9) |
+| `RELAY_COUNT` | 8 | Anzahl der GPIO-Ausgänge/Kanäle |
+| `GPIO_COUNT` | 8 | = `RELAY_COUNT` (Ausgang + fester Rückmelde-/Taster-Eingang je Kanal) |
+| `SWITCH_COUNT` | 8 | Anzahl der Schalter (mittlere Ebene) |
+| `BUTTON_COUNT` | 8 | Anzahl der Buttons (Display/Web, obere Ebene) |
+| `RELAY_PINS` | `{2,3,4,5,6,7,8,9}` | GPIO-Pins der Ausgänge |
+| `FEEDBACK_PINS` | `{10,11,12,13,14,26,27,28}` | GPIO-Eingänge: Rückmeldungen **oder** Taster (je nach `INPUT_MODE`, siehe 2.9), fest je Ausgang |
 | `RELAY_ACTIVE_LOW` | `false` | Schaltlogik (HIGH = aktiv) |
 | `DEFAULT_FEEDBACK_TIMEOUT_MS` | 500 | Standardfrist für eine Rückmeldung (Modus `rueckm`) |
 | `DEFAULT_INPUT_TIME_MS` | 25 (Taster) / 500 (Rückm.) | Default für Entprell-/Rückmeldezeit je Eingangsmodus |
@@ -72,13 +74,15 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
 
 ### 2.3 Persistenz (Flash)
 
-- Struktur `PersistedConfig` (aktuell `PERSIST_VERSION = 8`), passt in einen Flash-Sektor.
-- Versionierte Migration: `PersistedConfigV1` bis `V7` / aktuell.
-- Gespeichert: Relais-Zustände, Namen, Titel/Untertitel, `public_access`,
-  Benutzer, API-Keys, statische IP/SN/GW, Szenen-Modus + Szenen
-  (Name, aktiv-Flag, je Kanal Aktion aus/ein/unverändert), Ausgangspolaritäten,
-  Rückmeldeaktivierung/-polarität, gemeinsame Rückmeldezeit sowie je Ausgang
-  Impuls-Aktivierung und Impulszeit (100–2000 ms).
+- Struktur `PersistedConfig` (aktuell `PERSIST_VERSION = 9`), passt in einen Flash-Sektor.
+- Versionierte Migration: `PersistedConfigV1` bis `V8` → aktuell (V8 hatte noch Szenen,
+  wird per 1:1-Standardzuordnung migriert).
+- Gespeichert: GPIO-Zustände, Namen, Titel/Untertitel, `public_access`,
+  Benutzer, API-Keys, statische IP/SN/GW, Ausgangspolaritäten,
+  Rückmeldeaktivierung/-polarität, gemeinsame Rückmeldezeit, je Ausgang
+  Impuls-Aktivierung und Impulszeit (100–2000 ms) sowie die **Button→Schalter→GPIO-
+  Zuordnung** (Schalter-Namen, Schalter-Typ toggle/bistabil, Schalter→GPIO-Maske,
+  Schalter-Zustand, Button-Namen, Button→Schalter-Maske).
 - CMake-Check `check_persist_overlap.cmake` stellt sicher, dass der Flash-Slot
   nicht mit dem Binär-Image kollidiert.
 
@@ -89,30 +93,42 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
 | GET | `/`, `/index.html` | Haupt-UI |
 | GET/POST | `/login`, `/logout` | Authentifizierung |
 | GET/POST | `/password` | Passwort ändern |
-| GET/POST | `/config` | Titel/Namen/`public_access`, Ausgangspolarität (Low aktiv), je Ausgang Impuls (Checkbox + Impulszeit 100–2000 ms, Default 300), Rückmeldung + Rückmeldezeit; Namensfelder zeigen die zugehörige Ausgangs-GPIO (z. B. „Relais 1 (GP2)"). Im Taster-Modus (2.9) entfallen die Felder „Rückmeldung"/„Rückm. LOW"; stattdessen erscheinen „Taster GPxx" + Pseudo-LED und „Taster-Entprellzeit" |
+| GET/POST | `/config` | Titel/Namen/`public_access`, Ausgangspolarität (Low aktiv), je Ausgang Impuls (Checkbox + Impulszeit 100–2000 ms, Default 300), Rückmeldung + Rückmeldezeit; zusätzlich die **Schalter** (Name, Typ toggle/bistabil, GPIO-Zuordnung per Checkboxen) und **Buttons** (Name, Schalter-Zuordnung per Checkboxen). Im Taster-Modus (2.9) entfallen die Felder „Rückmeldung"/„Rückm. LOW"; stattdessen erscheinen „Taster GPxx" + Pseudo-LED und „Taster-Entprellzeit" |
 | GET/POST | `/network` | Statische IP-Einstellungen |
 | GET/POST | `/admin` | Benutzer-/API-Key-Verwaltung |
 | GET | `/me` | Aktueller Benutzer |
 | GET | `/active_users` | Aktive Sessions/Gäste |
-| GET | `/state` | Relais-Zustand (JSON, inkl. `scene_mode`; im Taster-Modus zusätzlich `buttons`) |
-| GET/POST | `/scenes` | Szenen-Modus + Szenen konfigurieren (Admin) |
+| GET | `/state` | Button-Zustand (JSON: `relays`=Button ein, `pending`, `changed`, `feedback_errors`; im Taster-Modus zusätzlich `buttons`) |
 | GET | `/events` | Server-Sent Events (Live-Status) |
-| POST | `/relay/<idx>/<on\|off\|toggle>` | Relais schalten |
-| POST | `/scene/<idx>/activate` | Szene `idx` aktivieren |
+| POST | `/relay/<idx>/<on\|off\|toggle>` | Button `idx` schalten (setzt/toggelt alle zugeordneten Schalter) |
 
 - **Auth**: Session-Token (Cookie), Rollen, optionaler `public_access`, API-Keys.
 - **SSE**: `/events` verteilt Zustandsänderungen live; Keepalive-`ping` alle 1 s.
 
-### 2.5 Szenen-Modus
+### 2.5 Steuer-Hierarchie: Button → Schalter → GPIO
 
-- Umschaltbar per Checkbox auf `/scenes` (Admin). Persistiert als `scene_mode`.
-- Bei aktivem Szenen-Modus steuern die 8 Buttons (Web + ESP-Display) **nicht**
-  direkt die Relais, sondern aktivieren je eine Szene.
-- Eine **Szene** hat: `enabled`-Flag, Name und je Kanal eine Aktion:
-  `0` = aus, `1` = ein, `2` = unverändert (Kanal wird nicht angetastet).
-- Aktivierung ist **momentan** (kein gehaltener Aktiv-Zustand): `activate_scene()`
-  wendet die Aktionen an, speichert bei Änderung und meldet den neuen Zustand.
-- Direkte Relais-Steuerung (`/relay/...`) bleibt parallel nutzbar.
+Dreistufiges Modell (je max. 8 Einheiten pro Ebene, konfigurierbar auf `/config`):
+
+- **GPIO (Kanal)** — fester Ausgang (`RELAY_PINS`) + fester Rückmelde-/Taster-Eingang
+  (`FEEDBACK_PINS`). Eigenschaften je GPIO: Polarität (Low aktiv), optionaler Impuls
+  + Impulszeit (100–2000 ms), optionale Rückmeldung + Rückmeldepolarität.
+- **Schalter** (mittlere Ebene) — treibt eine **GPIO-Maske** (1–8 GPIOs). Typ:
+  - `toggle` (0): GPIOs statisch ein/aus (bei Impuls-GPIO nur ein Impuls beim
+    Einschalten).
+  - `bistabil` (1): ein Impuls pro Zustandswechsel, Zustand wird im Schalter
+    gehalten (`switch_state`).
+- **Button** (obere Ebene, Web + ESP-Display) — treibt eine **Schalter-Maske**
+  (1–8 Schalter). `set_button(b,on)` setzt alle zugeordneten Schalter,
+  `toggle_button(b)` schaltet um (an nur, wenn der Button-Anzeigezustand „ein" ist).
+
+Aggregierter **Button-Anzeigezustand** (`button_disp_state`): `0` = alle Schalter aus
+(grau), `1` = alle ein (grün), `2` = gemischt (blau/`changed`). Zusätzlich pro Button
+`button_is_pending` (gelb, Impuls-/Rückmeldewartezeit läuft) und `button_is_error`
+(rot, Rückmeldefehler). Fehler-/Pending-Aggregation läuft GPIO → Schalter → Button.
+
+- **Standardzuordnung** (`build_default_mapping()`): 1:1 — Button `i` → Schalter `i`
+  → GPIO `i`, Typ toggle. Wird bei frischem Flash (`Empty`) und bei Migration
+  älterer Persistenzstände (V1–V8) gesetzt.
 
 ### 2.5 ESP-Link (`namespace esp_link`)
 
@@ -151,7 +167,7 @@ auf die **zwei Kerne** des RP2350 aufgeteilt:
 
 | | **core0 — Steuerung** | **core1 — Netzwerk** |
 |---|---|---|
-| Aufgaben | ESP-UART (`esp_link::service`), Relais-GPIO, Rückmeldungen, Impulse, Szenen | W6300, HTTP-Server, DHCP, SSE, **Flash-Schreiben** |
+| Aufgaben | ESP-UART (`esp_link::service`), Relais-GPIO, Rückmeldungen, Impulse, Taster/Schalter/Buttons | W6300, HTTP-Server, DHCP, SSE, **Flash-Schreiben** |
 | Blockiert nie? | **ja** (nur GPIO/UART, kein W6300/Flash) | darf blockieren (isoliert von core0) |
 | Loop | `net_core_main()` **nicht** — reiner `while`-Loop in `main()` | `net_core_main()` |
 
@@ -166,7 +182,7 @@ auf die **zwei Kerne** des RP2350 aufgeteilt:
 **Synchronisation (bewusst minimalistisch, deadlock-frei):**
 
 - Ein einziger `recursive_mutex_t g_state_mtx` schützt den geteilten Steuerzustand
-  (Relais-Zustände, Namen/Titel, Szenen, `active_scene`, `esp_fw_version` …). Über
+  (Relais-/Schalter-/Button-Zustände, Namen/Titel, Zuordnungsmasken, `esp_fw_version` …). Über
   die RAII-Hülle `struct StateLock`. Nur *ein* Mutex → keine Lock-Reihenfolge →
   Deadlock unmöglich; `recursive_*` erlaubt Wiedereintritt (Helfer rufen Helfer).
 - **Regel:** Der Mutex wird **nie** über Netz-I/O oder Flash gehalten. Serializer
@@ -231,8 +247,7 @@ Verhalten im Taster-Modus (`INPUT_MODE_BUTTON`):
   „Taster-Entprellzeit", Default `DEFAULT_INPUT_TIME_MS = 25 ms`, Bereich
   `MIN/MAX_INPUT_TIME_MS = 5…2000 ms`).
 - `service_buttons()` läuft auf **core0** (parallel zu den Web-/ESP-Buttons). Eine
-  steigende Flanke (Druck) **toggelt** das zugehörige Relais (`set_relay()`); im
-  Szenen-Modus löst sie stattdessen die Szene `i` aus (`activate_scene()`).
+  steigende Flanke (Druck) **toggelt** den zugehörigen Schalter (`apply_switch_locked()`).
 - `state_json()` liefert zusätzlich das Array `buttons` (entprellter Tasterzustand);
   die Konfig-Seite zeigt je Kanal „Taster GPxx" + eine **Pseudo-LED**, die per
   `/state`-Polling (400 ms) den gedrückten Taster anzeigt.
@@ -247,18 +262,18 @@ Verhalten im Taster-Modus (`INPUT_MODE_BUTTON`):
 
 Lokales Touch-Terminal (Board ESP32-2432S028, „CYD"), LVGL 8 + TFT_eSPI + XPT2046-Touch.
 
-- **UI**: 8 Buttons (4×2-Raster) mit ON/OFF-Statusfarben, Titelzeile.
-  Startanzeige „wait for init", bis der Pico antwortet.
-  Im **Szenen-Modus** zeigen die Buttons die Szenennamen (blau); nur aktivierte
-  Szenen sind sichtbar, ein Tastendruck löst die Szene aus (momentan).
+- **UI**: 8 Buttons (4×2-Raster) mit Statusfarben, Titelzeile.
+  Startanzeige „wait for init", bis der Pico antwortet. Button-Farben spiegeln den
+  aggregierten Button-Zustand: grau (aus), grün (ein), blau (gemischt/`changed`),
+  gelb (`pending`), rot (Fehler).
 - **Pico-Link**: `PICO_UART = Serial` (UART0, `GPIO1` = TX, `GPIO3` = RX), 115200 Baud.
   Diese Schnittstelle wird **ausschließlich** für die Pico-Kommunikation genutzt —
   keine Debug-Ausgaben darüber.
 - **Heartbeat**: sendet `PING` alle 1000 ms; `pico_online` wird bei `PONG` gesetzt,
   Timeout nach 3000 ms → zurück auf „wait for init".
 - Nach `pico_online` wird `GET DISPLAY` abgefragt und die UI aktualisiert.
-- `MODE:SCENE` / `MODE:RELAY` schaltet die UI live um; Szenennamen kommen per
-  `SCENEn:<name>`. Tastendruck sendet `SWn:ON` / `SWn:OFF` bzw. `SCENEn:GO`.
+- Zustands-Updates kommen per `STATEn`/`ERRORn`/`PENDINGn`/`CHANGEDn`; ein Tastendruck
+  sendet `SWn:ON` / `SWn:OFF` (Button `n`).
 - Nur die LVGL-Fonts montserrat 14/24/48 sind in `lv_conf.h` aktiviert.
 
 ---
@@ -276,8 +291,7 @@ Lokales Touch-Terminal (Board ESP32-2432S028, „CYD"), LVGL 8 + TFT_eSPI + XPT2
 | `GET NAMES` | Nur Kanalnamen |
 | `GET STATES` | Nur Zustände |
 | `GET SUBTITLE` | Nur Untertitel |
-| `SWn:ON` / `SWn:OFF` | Relais `n` (1–8) schalten |
-| `SCENEn:GO` | Szene `n` (1–8) auslösen (Szenen-Modus) |
+| `SWn:ON` / `SWn:OFF` | Button `n` (1–8) schalten |
 
 ### Pico → ESP32
 
@@ -286,12 +300,12 @@ Lokales Touch-Terminal (Board ESP32-2432S028, „CYD"), LVGL 8 + TFT_eSPI + XPT2
 | `PONG` | Antwort auf `PING` |
 | `TITLE:<text>` | Seitentitel |
 | `SUBTITLE:<text>` | Untertitel |
-| `NAMEn:<text>` | Name von Kanal `n` |
-| `MODE:SCENE` / `MODE:RELAY` | Aktiver Modus (Szenen- oder Direktbetrieb) |
-| `SCENEn:<text>` | Name von Szene `n` (leer = Szene inaktiv) |
-| `STATEn:ON` / `STATEn:OFF` | Zustand von Kanal `n` |
-| `ERRORn:ON` / `ERRORn:OFF` | Rückmeldefehler von Relais `n` |
-| `SERRORn:ON` / `SERRORn:OFF` | Rückmeldefehler der zuletzt auslösenden Szene `n` |
+| `NAMEn:<text>` | Name von Button `n` |
+| `STATEn:ON` / `STATEn:OFF` | Button `n` ein (alle Schalter ein) / sonst |
+| `ERRORn:ON` / `ERRORn:OFF` | Rückmeldefehler von Button `n` (rot) |
+| `PENDINGn:ON` / `PENDINGn:OFF` | Impuls-/Rückmeldewartezeit von Button `n` (gelb) |
+| `CHANGEDn:ON` / `CHANGEDn:OFF` | Button `n` gemischt (blau/unbestimmt) |
+| `IP:<text>` | Netzwerk-/IP-Status |
 | `END STATES` | Ende der Zustandsliste |
 | `END NAMES` | Ende der Namensliste |
 | `END DISPLAY` | Ende der vollständigen Display-Konfiguration |

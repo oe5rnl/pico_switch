@@ -61,12 +61,9 @@ TFT_eSPI tft = TFT_eSPI(screenWidth, screenHeight);
 #define SWITCH_COUNT 8
 static bool     switch_state[SWITCH_COUNT] = { false };
 static bool     feedback_error[SWITCH_COUNT] = { false };
-static bool     scene_feedback_error[SWITCH_COUNT] = { false };
+static bool     button_pending[SWITCH_COUNT] = { false };  // gelb: Rueckmeldung ausstehend
+static bool     button_changed[SWITCH_COUNT] = { false };  // blau: Schalter gemischt
 static String   switch_names[SWITCH_COUNT];
-static bool     scene_mode = false;
-static String   scene_names[SWITCH_COUNT];
-static int      active_scene = -1;
-static bool     scene_dirty = false;
 static lv_obj_t * switch_btns[SWITCH_COUNT]  = { nullptr };
 static lv_obj_t * switch_lbls[SWITCH_COUNT]  = { nullptr };
 static lv_obj_t * warn_dots[SWITCH_COUNT]    = { nullptr };
@@ -88,48 +85,35 @@ static void set_splash_visible(bool visible);
 
 static bool parse_error_line(const String &line)
 {
-    const bool scene_error = line.startsWith("SERROR");
-    const int prefix_len = scene_error ? 6 : 5;
-    if (!scene_error && !line.startsWith("ERROR")) return false;
+    if (!line.startsWith("ERROR")) return false;
+    const int prefix_len = 5;
     int colon = line.indexOf(':');
     if (colon <= prefix_len) return false;
     int idx = line.substring(prefix_len, colon).toInt() - 1;
     String value = line.substring(colon + 1);
     if (idx < 0 || idx >= SWITCH_COUNT || (value != "ON" && value != "OFF")) return false;
-    if (scene_error) scene_feedback_error[idx] = value == "ON";
-    else feedback_error[idx] = value == "ON";
+    feedback_error[idx] = value == "ON";
     update_switch_visual(idx);
     return true;
 }
 
-// Verarbeitet MODE:/SCENEn:-Zeilen der Display-Konfiguration.
+// Verarbeitet PENDINGn:/CHANGEDn:-Zeilen (gelb/blau).
 // Gibt true zurück, wenn die Zeile erkannt wurde.
-static bool parse_mode_or_scene_line(const String &line)
+static bool parse_pending_changed_line(const String &line)
 {
-    if (line == "MODE:SCENE") { scene_mode = true; return true; }
-    if (line == "MODE:RELAY") { scene_mode = false; return true; }
-
-    if (line.startsWith("ASCENE:")) {
-        active_scene = line.substring(7).toInt() - 1;  // 0 = keine aktive Szene
-        return true;
-    }
-
-    if (line.startsWith("SDIRTY:")) {
-        scene_dirty = (line.substring(7) == "ON");
-        return true;
-    }
-
-    if (line.startsWith("SCENE")) {
-        int colon = line.indexOf(':');
-        if (colon > 5) {
-            int n = line.substring(5, colon).toInt();
-            if (n >= 1 && n <= SWITCH_COUNT) {
-                scene_names[n - 1] = line.substring(colon + 1);
-                return true;
-            }
-        }
-    }
-    return false;
+    bool is_pending = line.startsWith("PENDING");
+    bool is_changed = line.startsWith("CHANGED");
+    if (!is_pending && !is_changed) return false;
+    const int prefix_len = 7;
+    int colon = line.indexOf(':');
+    if (colon <= prefix_len) return false;
+    int idx = line.substring(prefix_len, colon).toInt() - 1;
+    String value = line.substring(colon + 1);
+    if (idx < 0 || idx >= SWITCH_COUNT || (value != "ON" && value != "OFF")) return false;
+    if (is_pending) button_pending[idx] = value == "ON";
+    else            button_changed[idx] = value == "ON";
+    update_switch_visual(idx);
+    return true;
 }
 
 static void set_title_text(const char *text)
@@ -199,7 +183,7 @@ static bool pico_read_display_config(String &title)
             continue;
         }
 
-        if (parse_mode_or_scene_line(line)) {
+        if (parse_pending_changed_line(line)) {
             continue;
         }
 
@@ -309,7 +293,7 @@ static void handle_pico_async_line(const String &line)
         return;
     }
 
-    if (parse_mode_or_scene_line(line)) {
+    if (parse_pending_changed_line(line)) {
         refresh_all_buttons();
         return;
     }
@@ -383,94 +367,47 @@ static void update_switch_visual(int idx)
     lv_obj_t * lbl = switch_lbls[idx];
     if(!btn || !lbl) return;
 
-    if(scene_mode) {
-        if(scene_names[idx].length() > 0) {
-            lv_obj_clear_flag(btn, LV_OBJ_FLAG_HIDDEN);
-            uint32_t col = scene_feedback_error[idx] ? 0xF00000 : ((idx == active_scene) ? 0x00F805 : 0x45F8FF);
-            lv_obj_set_style_bg_color(btn, lv_color_hex(col), 0);
-            String sname = scene_names[idx];
-            sname.replace("|", "\n"); /* '|' im Szenennamen erzwingt Zeilenumbruch */
-            lv_label_set_text(lbl, sname.c_str());
-        }
-        else {
-            lv_obj_add_flag(btn, LV_OBJ_FLAG_HIDDEN);
-        }
-        // Warn-Punkt: sichtbar wenn aktive Szene direkt geändert wurde
-        if (warn_dots[idx]) {
-            if (scene_dirty && idx == active_scene)
-                lv_obj_clear_flag(warn_dots[idx], LV_OBJ_FLAG_HIDDEN);
-            else
-                lv_obj_add_flag(warn_dots[idx], LV_OBJ_FLAG_HIDDEN);
-        }
-        return;
-    }
-
     lv_obj_clear_flag(btn, LV_OBJ_FLAG_HIDDEN);
     if (warn_dots[idx]) lv_obj_add_flag(warn_dots[idx], LV_OBJ_FLAG_HIDDEN);
     String name = switch_names[idx].length() > 0 ? switch_names[idx] : String(idx + 1);
     name.replace("|", "\n"); /* '|' im Namen erzwingt Zeilenumbruch am Display */
     if(feedback_error[idx]) {
-        lv_obj_set_style_bg_color(btn, lv_color_hex(0xF00000), 0);
+        lv_obj_set_style_bg_color(btn, lv_color_hex(0xF00000), 0); /* rot: Fehler */
+        lv_label_set_text_fmt(lbl, "%s\n%s", name.c_str(), switch_state[idx] ? "ON" : "OFF");
+    }
+    else if(button_pending[idx]) {
+        lv_obj_set_style_bg_color(btn, lv_color_hex(0xF0C000), 0); /* gelb: Rueckmeldung ausstehend */
         lv_label_set_text_fmt(lbl, "%s\n%s", name.c_str(), switch_state[idx] ? "ON" : "OFF");
     }
     else if(switch_state[idx]) {
-        lv_obj_set_style_bg_color(btn, lv_color_hex(0x00F805), 0); /* grün */
+        lv_obj_set_style_bg_color(btn, lv_color_hex(0x00F805), 0); /* gruen: ein */
         lv_label_set_text_fmt(lbl, "%s\nON", name.c_str());
     }
+    else if(button_changed[idx]) {
+        lv_obj_set_style_bg_color(btn, lv_color_hex(0x2060F0), 0); /* blau: gemischt */
+        lv_label_set_text_fmt(lbl, "%s\n--", name.c_str());
+    }
     else {
-        lv_obj_set_style_bg_color(btn, lv_color_hex(0x45F8FF), 0); /* dunkles Grau */
+        lv_obj_set_style_bg_color(btn, lv_color_hex(0x45F8FF), 0); /* grau: aus */
         lv_label_set_text_fmt(lbl, "%s\nOFF", name.c_str());
     }
 }
 
 static void apply_button_layout()
 {
-    /* aktivierte Szenen sammeln (für Szenen-Modus) */
-    int n = 0;
-    if (scene_mode) {
-        for (int i = 0; i < SWITCH_COUNT; i++) {
-            if (scene_names[i].length() > 0) n++;
-        }
-    }
-
     const int y_top  = 45;
-    const int y_bot  = 220; /* über IP-Label */
-    const int area_h = y_bot - y_top;
-
-    if (scene_mode && n >= 1 && n <= 3) {
-        int btn_w, btn_h = 150, gap_x, x_start;
-        if      (n == 1) { btn_w = 200; gap_x =  0; }
-        else if (n == 2) { btn_w = 140; gap_x = 12; }
-        else             { btn_w =  88; gap_x = 10; }
-        x_start = (screenWidth - n * btn_w - (n - 1) * gap_x) / 2;
-        int y_pos = y_top + (area_h - btn_h) / 2;
-
-        int j = 0;
-        for (int i = 0; i < SWITCH_COUNT; i++) {
-            if (!switch_btns[i] || !switch_lbls[i]) continue;
-            if (scene_names[i].length() > 0) {
-                lv_obj_set_size(switch_btns[i], btn_w, btn_h);
-                lv_obj_set_pos(switch_btns[i], x_start + j * (btn_w + gap_x), y_pos);
-                lv_obj_set_width(switch_lbls[i], btn_w - 12);
-                lv_obj_center(switch_lbls[i]);
-                if (warn_dots[i]) lv_obj_align(warn_dots[i], LV_ALIGN_TOP_RIGHT, -2, 2);
-                j++;
-            }
-        }
-    } else {
-        /* Standard 4×2-Raster */
-        const int cols=4, gw=70, gh=78, gx=8, gy=8;
-        const int grid_w = cols * gw + (cols - 1) * gx;
-        const int x_start = (screenWidth - grid_w) / 2;
-        for (int i = 0; i < SWITCH_COUNT; i++) {
-            if (!switch_btns[i] || !switch_lbls[i]) continue;
-            lv_obj_set_size(switch_btns[i], gw, gh);
-            lv_obj_set_pos(switch_btns[i], x_start + (i % cols) * (gw + gx),
-                                           y_top   + (i / cols) * (gh + gy));
-            lv_obj_set_width(switch_lbls[i], gw - 8);
-            lv_obj_center(switch_lbls[i]);
-            if (warn_dots[i]) lv_obj_align(warn_dots[i], LV_ALIGN_TOP_RIGHT, -2, 2);
-        }
+    /* Standard 4×2-Raster */
+    const int cols=4, gw=70, gh=78, gx=8, gy=8;
+    const int grid_w = cols * gw + (cols - 1) * gx;
+    const int x_start = (screenWidth - grid_w) / 2;
+    for (int i = 0; i < SWITCH_COUNT; i++) {
+        if (!switch_btns[i] || !switch_lbls[i]) continue;
+        lv_obj_set_size(switch_btns[i], gw, gh);
+        lv_obj_set_pos(switch_btns[i], x_start + (i % cols) * (gw + gx),
+                                       y_top   + (i / cols) * (gh + gy));
+        lv_obj_set_width(switch_lbls[i], gw - 8);
+        lv_obj_center(switch_lbls[i]);
+        if (warn_dots[i]) lv_obj_align(warn_dots[i], LV_ALIGN_TOP_RIGHT, -2, 2);
     }
 }
 
@@ -508,12 +445,6 @@ static void switch_event_cb(lv_event_t * e)
 {
     int idx = (int)(intptr_t)lv_event_get_user_data(e);
     if(idx < 0 || idx >= SWITCH_COUNT) return;
-
-    if(scene_mode) {
-        if(scene_names[idx].length() == 0) return;
-        PICO_UART.printf("SCENE%d:GO\n", idx + 1);
-        return;
-    }
 
     switch_state[idx] = !switch_state[idx];
     update_switch_visual(idx);
