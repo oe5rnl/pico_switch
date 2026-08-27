@@ -74,6 +74,7 @@ static lv_obj_t * splash_label = nullptr;  // Startanzeige "sw_switch" statt Def
 static lv_obj_t * splash_ver   = nullptr;  // Firmware-Version unter der Startanzeige
 static lv_obj_t * splash_credit = nullptr; // Autorenzeile unter der Firmware-Version
 static bool display_config_loaded = false;
+static bool buttons_dirty = false;  // gesetzt bei ENABLED/END DISPLAY -> Re-Layout einmal pro Loop
 static uint32_t next_display_query_ms = 0;
 static String pico_rx_line;
 static bool pico_online = false;
@@ -304,7 +305,7 @@ static void handle_pico_async_line(const String &line)
     }
 
     if (line == "END DISPLAY") {
-        refresh_all_buttons();
+        buttons_dirty = true;
         return;
     }
 
@@ -314,13 +315,12 @@ static void handle_pico_async_line(const String &line)
     }
 
     if (parse_enabled_line(line)) {
-        refresh_all_buttons();
+        buttons_dirty = true;  // Sichtbarkeit geaendert -> Re-Layout anfordern (gebuendelt)
         return;
     }
 
     if (parse_pending_changed_line(line)) {
-        refresh_all_buttons();
-        return;
+        return;  // Farbe bereits via update_switch_visual gesetzt, kein Re-Layout noetig
     }
 
     if (parse_error_line(line)) return;
@@ -426,19 +426,52 @@ static void update_switch_visual(int idx)
 
 static void apply_button_layout()
 {
-    const int y_top  = 45;
-    /* Standard 4×2-Raster */
-    const int cols=4, gw=70, gh=78, gx=8, gy=8;
-    const int grid_w = cols * gw + (cols - 1) * gx;
-    const int x_start = (screenWidth - grid_w) / 2;
+    /* nur aktive Buttons anordnen (Methode wie frueher bei den Szenen) */
+    int n = 0;
     for (int i = 0; i < SWITCH_COUNT; i++) {
-        if (!switch_btns[i] || !switch_lbls[i]) continue;
-        lv_obj_set_size(switch_btns[i], gw, gh);
-        lv_obj_set_pos(switch_btns[i], x_start + (i % cols) * (gw + gx),
-                                       y_top   + (i / cols) * (gh + gy));
-        lv_obj_set_width(switch_lbls[i], gw - 8);
-        lv_obj_center(switch_lbls[i]);
-        if (warn_dots[i]) lv_obj_align(warn_dots[i], LV_ALIGN_TOP_RIGHT, -2, 2);
+        if (button_enabled[i]) n++;
+    }
+
+    const int y_top  = 45;
+    const int y_bot  = 220; /* ueber IP-Label */
+    const int area_h = y_bot - y_top;
+
+    if (n >= 1 && n <= 3) {
+        int btn_w, btn_h = 150, gap_x, x_start;
+        if      (n == 1) { btn_w = 200; gap_x =  0; }
+        else if (n == 2) { btn_w = 140; gap_x = 12; }
+        else             { btn_w =  88; gap_x = 10; }
+        x_start = (screenWidth - n * btn_w - (n - 1) * gap_x) / 2;
+        int y_pos = y_top + (area_h - btn_h) / 2;
+
+        int j = 0;
+        for (int i = 0; i < SWITCH_COUNT; i++) {
+            if (!switch_btns[i] || !switch_lbls[i]) continue;
+            if (!button_enabled[i]) continue;
+            lv_obj_set_size(switch_btns[i], btn_w, btn_h);
+            lv_obj_set_pos(switch_btns[i], x_start + j * (btn_w + gap_x), y_pos);
+            lv_obj_set_width(switch_lbls[i], btn_w - 12);
+            lv_obj_center(switch_lbls[i]);
+            if (warn_dots[i]) lv_obj_align(warn_dots[i], LV_ALIGN_TOP_RIGHT, -2, 2);
+            j++;
+        }
+    } else {
+        /* Standard 4×2-Raster, aktive Buttons luecken los packen */
+        const int cols=4, gw=70, gh=78, gx=8, gy=8;
+        const int grid_w = cols * gw + (cols - 1) * gx;
+        const int x_start = (screenWidth - grid_w) / 2;
+        int j = 0;
+        for (int i = 0; i < SWITCH_COUNT; i++) {
+            if (!switch_btns[i] || !switch_lbls[i]) continue;
+            if (!button_enabled[i]) continue;
+            lv_obj_set_size(switch_btns[i], gw, gh);
+            lv_obj_set_pos(switch_btns[i], x_start + (j % cols) * (gw + gx),
+                                           y_top   + (j / cols) * (gh + gy));
+            lv_obj_set_width(switch_lbls[i], gw - 8);
+            lv_obj_center(switch_lbls[i]);
+            if (warn_dots[i]) lv_obj_align(warn_dots[i], LV_ALIGN_TOP_RIGHT, -2, 2);
+            j++;
+        }
     }
 }
 
@@ -625,6 +658,7 @@ void my_touchpad_read(lv_indev_drv_t *indev_drv, lv_indev_data_t *data)
 
 void setup()
 {
+    PICO_UART.setRxBufferSize(1024);  // groesserer RX-Puffer: voller Zustands-Push (~50 Zeilen) darf nicht ueberlaufen
     PICO_UART.begin(PICO_UART_BAUD);
     delay(200);
 
@@ -659,6 +693,10 @@ void setup()
 void loop()
 {
     service_pico_uart();
+    if (buttons_dirty) {  // gebuendeltes Re-Layout nach dem Leeren des UART-Puffers
+        buttons_dirty = false;
+        refresh_all_buttons();
+    }
     update_pico_heartbeat();
     update_display_config_from_pico();
     lv_timer_handler();
