@@ -113,6 +113,31 @@ cd pico
 
 Das Skript `pico/upload.sh` klont den Code `pico/WIZnet-PICO-C` beim ersten Lauf automatisch aus dem Netz. Daher kann das erste kompilieren etwas länger dauern. WIZnet ist per `.gitignore` augenommen. 
 
+### Nur Firmware-Images flashen (ohne Build) — `pico-switch-fw-update.sh`
+
+Zum Verteilen/Aufspielen **fertiger** Firmware ohne Quellcode-Build gibt es
+`pico-switch-fw-update.sh` (Repo-Wurzel). Es flasht **ohne BOOTSEL-Taste**:
+Pico per `picotool` (Software-Reboot in BOOTSEL), ESP32 per `esptool` über die
+serielle USB-Brücke.
+
+```bash
+./pico-switch-fw-update.sh            # Auto: flasht, wozu ein Image (*.uf2/*.bin) im cwd liegt
+./pico-switch-fw-update.sh -p         # nur Pico (*.uf2 aus aktuellem Verzeichnis)
+./pico-switch-fw-update.sh -e         # nur ESP32 (*.bin aus aktuellem Verzeichnis)
+./pico-switch-fw-update.sh -i fw.uf2  # Image explizit (Endung wählt Ziel)
+./pico-switch-fw-update.sh --esp32-image app.bin --port /dev/ttyUSB0
+```
+
+- **Images** liegen im aktuellen Verzeichnis (`*.uf2` = Pico, `*.bin` = ESP32)
+  oder werden per `-i` / `--pico-image` / `--esp32-image` angegeben.
+- Das Skript **prüft die benötigten Programme** (`picotool` bzw. `esptool`).
+  Fehlt etwas, listet es die fehlenden Komponenten auf und fragt, ob sie
+  installiert werden sollen; nach der Installation fragt es, ob geflasht wird.
+- ESP32-Default-Offset ist `0x10000` (App-Update; Bootloader/Partitionen bleiben).
+  Für ein zusammengeführtes (merged) Image `--esp32-offset 0x0` verwenden.
+- Zum ESP32-Flashen muss die UART-Verbindung Pico↔ESP32 (GP0/GP1) getrennt sein.
+
+
 ### Kompilierung und Hochladen im Detail (normalerweise nicht notwendig)
 
 
