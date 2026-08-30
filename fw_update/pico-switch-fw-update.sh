@@ -21,6 +21,9 @@ set -euo pipefail
 
 SELF="$(basename "$0")"
 
+# Nutzer-installierte Tools (pipx/pip --user, heruntergeladenes picotool) finden.
+export PATH="$HOME/.local/bin:$PATH"
+
 # ---- Konfiguration / Defaults ---------------------------------------------
 PICOTOOL="${PICOTOOL:-picotool}"
 ESP32_PORT="${ESP32_PORT:-}"
@@ -28,6 +31,8 @@ ESP32_BAUD="${ESP32_BAUD:-921600}"
 # App-Image an 0x10000 (Bootloader/Partitionen liegen bereits auf dem ESP32).
 # Fuer ein zusammengefuehrtes (merged) Image stattdessen --esp32-offset 0x0.
 ESP32_OFFSET="${ESP32_OFFSET:-0x10000}"
+# Fertige picotool-Binaries von Raspberry Pi (raspberrypi/pico-sdk-tools).
+PICOTOOL_PREBUILT_URL="${PICOTOOL_PREBUILT_URL:-}"
 
 WANT_PICO=0
 WANT_ESP32=0
@@ -201,21 +206,127 @@ install_esptool() {
 
 install_picotool() {
   echo "==> Installiere picotool ..."
+  # 1) Vorgefertigtes Binary von Raspberry Pi (kein root noetig, schnellster Weg)
+  if install_picotool_prebuilt; then return 0; fi
+  # 2) apt (falls die Distribution picotool als Paket kennt)
   if command -v apt-get >/dev/null 2>&1; then
-    if sudo apt-get update && sudo apt-get install -y picotool; then
-      return 0
+    if sudo apt-get install -y picotool >/dev/null 2>&1; then
+      hash -r
+      if command -v picotool >/dev/null 2>&1; then echo "   via apt installiert."; return 0; fi
     fi
   fi
+  # 3) Aus Quellcode bauen (Fallback)
+  if install_picotool_from_source; then return 0; fi
+
   cat >&2 <<'EOF'
-   Automatische Installation von picotool nicht moeglich.
-   picotool ist in dieser Distribution nicht als Paket verfuegbar.
+   Automatische Installation von picotool fehlgeschlagen.
    Manuell installieren (Beispiel):
-     sudo apt-get install -y build-essential cmake libusb-1.0-0-dev pkg-config
+     sudo apt-get install -y build-essential cmake libusb-1.0-0-dev pkg-config git
      git clone https://github.com/raspberrypi/picotool.git
+     git clone https://github.com/raspberrypi/pico-sdk.git
      cd picotool && mkdir build && cd build
-     cmake .. && make -j"$(nproc)" && sudo make install
+     PICO_SDK_PATH=../../pico-sdk cmake .. && make -j"$(nproc)" && sudo make install
 EOF
   return 1
+}
+
+# picotool benoetigt libusb-1.0 zur Laufzeit; bei Bedarf per apt nachziehen.
+ensure_libusb_runtime() {
+  local ldc=""
+  ldc="$(command -v ldconfig || true)"
+  [[ -z "${ldc}" && -x /sbin/ldconfig ]] && ldc="/sbin/ldconfig"
+  if [[ -n "${ldc}" ]] && "${ldc}" -p 2>/dev/null | grep -q "libusb-1.0\.so"; then
+    return 0
+  fi
+  # Fallback: Bibliothek direkt in ueblichen Pfaden suchen (ohne ldconfig).
+  if ls /lib/*/libusb-1.0.so.0 /usr/lib/*/libusb-1.0.so.0 >/dev/null 2>&1; then
+    return 0
+  fi
+  if command -v apt-get >/dev/null 2>&1; then
+    echo "   installiere Laufzeitbibliothek libusb-1.0 ..."
+    sudo apt-get install -y libusb-1.0-0 >/dev/null 2>&1 || true
+  fi
+}
+
+# Laedt ein passendes, vorgefertigtes picotool-Binary nach ~/.local/bin.
+install_picotool_prebuilt() {
+  local arch asset_arch
+  arch="$(uname -m)"
+  case "${arch}" in
+    x86_64|amd64)  asset_arch="x86_64-lin" ;;
+    aarch64|arm64) asset_arch="aarch64-lin" ;;
+    *) echo "   kein vorgefertigtes picotool fuer Architektur ${arch}"; return 1 ;;
+  esac
+  command -v curl >/dev/null 2>&1 || { echo "   curl fehlt (fuer Binary-Download)"; return 1; }
+  command -v tar  >/dev/null 2>&1 || { echo "   tar fehlt (fuer Binary-Entpacken)"; return 1; }
+  ensure_libusb_runtime
+
+  local url="${PICOTOOL_PREBUILT_URL}"
+  if [[ -z "${url}" ]]; then
+    # Neueste passende Asset-URL aus der GitHub-API holen ...
+    url="$(curl -fsSL https://api.github.com/repos/raspberrypi/pico-sdk-tools/releases/latest 2>/dev/null \
+          | grep -oE "https://[^\" ]*picotool-[^\" ]*-${asset_arch}\.tar\.gz" | head -1)" || true
+  fi
+  if [[ -z "${url}" ]]; then
+    # ... sonst auf eine bekannte Version zurueckfallen.
+    url="https://github.com/raspberrypi/pico-sdk-tools/releases/download/v2.3.0-1/picotool-2.3.0-${asset_arch}.tar.gz"
+  fi
+
+  echo "   lade vorgefertigtes picotool: ${url}"
+  local tmp; tmp="$(mktemp -d)"
+  if ! curl -fsSL "${url}" -o "${tmp}/picotool.tgz"; then
+    echo "   Download fehlgeschlagen"; rm -rf "${tmp}"; return 1
+  fi
+  if ! tar xzf "${tmp}/picotool.tgz" -C "${tmp}"; then
+    echo "   Entpacken fehlgeschlagen"; rm -rf "${tmp}"; return 1
+  fi
+  local bin; bin="$(find "${tmp}" -type f -name picotool | head -1)" || true
+  if [[ -z "${bin}" ]]; then
+    echo "   picotool im Archiv nicht gefunden"; rm -rf "${tmp}"; return 1
+  fi
+  mkdir -p "${HOME}/.local/bin"
+  install -m 0755 "${bin}" "${HOME}/.local/bin/picotool"
+  rm -rf "${tmp}"
+  hash -r
+  if command -v picotool >/dev/null 2>&1; then
+    echo "   picotool nach ${HOME}/.local/bin installiert."
+    return 0
+  fi
+  echo "   Hinweis: ~/.local/bin nicht im PATH?" >&2
+  return 1
+}
+
+# Baut picotool aus dem Quellcode (benoetigt Pico-SDK) nach ~/.local/bin.
+install_picotool_from_source() {
+  echo "   versuche Build aus Quellcode ..."
+  if ! (command -v git >/dev/null && command -v cmake >/dev/null && command -v make >/dev/null); then
+    if command -v apt-get >/dev/null 2>&1; then
+      sudo apt-get install -y build-essential cmake libusb-1.0-0-dev pkg-config git || return 1
+    else
+      echo "   Build-Werkzeuge (git/cmake/make) fehlen"; return 1
+    fi
+  fi
+  ensure_libusb_runtime
+  local tmp; tmp="$(mktemp -d)"
+  if ! git clone --depth 1 https://github.com/raspberrypi/picotool.git "${tmp}/picotool"; then
+    rm -rf "${tmp}"; return 1
+  fi
+  local sdk="${PICO_SDK_PATH:-}"
+  if [[ -z "${sdk}" || ! -e "${sdk}/pico_sdk_init.cmake" ]]; then
+    if ! git clone --depth 1 https://github.com/raspberrypi/pico-sdk.git "${tmp}/pico-sdk"; then
+      rm -rf "${tmp}"; return 1
+    fi
+    sdk="${tmp}/pico-sdk"
+  fi
+  if ! ( cd "${tmp}/picotool" && mkdir -p build && cd build \
+         && PICO_SDK_PATH="${sdk}" cmake .. && make -j"$(nproc)" ); then
+    rm -rf "${tmp}"; return 1
+  fi
+  mkdir -p "${HOME}/.local/bin"
+  install -m 0755 "${tmp}/picotool/build/picotool" "${HOME}/.local/bin/picotool" || { rm -rf "${tmp}"; return 1; }
+  rm -rf "${tmp}"
+  hash -r
+  command -v picotool >/dev/null 2>&1
 }
 
 # ---- Abhaengigkeiten pruefen ----------------------------------------------

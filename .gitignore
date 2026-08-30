@@ -66,3 +66,9 @@ info.txt
 
 # Externer WIZnet-PICO-C-Checkout (nicht versionieren, egal an welcher Stelle)
 WIZnet-PICO-C/
+
+# Firmware-Verteilverzeichnis: Images hier trotzdem versionieren
+!fw_update/
+!fw_update/*.bin
+!fw_update/*.uf2
+!fw_update/*.hex
