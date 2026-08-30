@@ -146,17 +146,25 @@ pio run -e cyd -t upload
 
 #### Pico-Implementierung (`pico/`)
 
-Empfohlen: Helper-Skript `pico/upload.sh` (baut und kopiert die UF2 auf das
-gemountete `RP2350`-Laufwerk):
+Empfohlen: Helper-Skript `pico/upload.sh`. **Standardmäßig flasht es ohne
+BOOTSEL-Taste** über USB (`picotool`): Der laufende Pico wird per Software in den
+BOOTSEL-Modus versetzt, geflasht und automatisch neu gestartet.
 
 ```bash
 cd pico
-./upload.sh                    # Build + Upload aufs BOOTSEL-Laufwerk
+./upload.sh                    # Build + USB-Flash OHNE BOOTSEL-Taste (Default)
 ./upload.sh -c                 # Clean-Build erzwingen
 ./upload.sh -m rueckm          # Eingangsmodus Rückmeldung (Default: taster)
 ./upload.sh -w                 # EINMAL-Werksreset: Persistenz beim Boot löschen (s. u.)
-./upload.sh /pfad/zum/RP2350   # alternatives Ziel-Laufwerk
+./upload.sh -d                 # Klassisch: UF2 auf BOOTSEL-Laufwerk kopieren
+./upload.sh /pfad/zum/RP2350   # UF2 auf ein bestimmtes BOOTSEL-Laufwerk kopieren
 ```
+
+- **Ohne BOOTSEL (Default):** Der Pico muss mit laufender Firmware per USB
+  verbunden sein; `picotool` (mit USB-Support) muss installiert sein. Kein
+  Tastendruck, kein manuelles Umstecken nötig.
+- **Mit BOOTSEL (`-d`/`--drive` oder UPLOAD_DIR):** Klassischer Weg über das
+  gemountete `RP2350`-Laufwerk (siehe unten).
 
 `upload.sh` klont beim ersten Aufruf die benötigten Abhängigkeiten.
 
@@ -185,12 +193,16 @@ cd pico
 - `-w` bei Bedarf mit `-m taster|rueckm` kombinieren (Default `taster`).
 - Nach dem Reset gelten die Werkseinstellungen inkl. Login `admin` / `sw234`.
 
-Zum Flashen muss der Pico im BOOTSEL-Modus sein:
+Zum Flashen über ein **BOOTSEL-Laufwerk** (`-d`/`--drive` oder UPLOAD_DIR-Argument)
+muss der Pico im BOOTSEL-Modus sein:
 
 1. `BOOTSEL` am Pico gedrückt halten.
 2. Pico per USB verbinden, dann `BOOTSEL` loslassen.
 3. Das Skript kopiert die UF2 automatisch nach `/media/$USER/RP2350` (oder das
    übergebene Ziel). Manuell kann die UF2 auch direkt aufs Laufwerk kopiert werden.
+
+Ohne `-d`/UPLOAD_DIR ist das **nicht nötig** — dann flasht das Skript per
+`picotool` über USB, ohne die BOOTSEL-Taste.
 
 Alternativer manueller Build ohne Skript:
 

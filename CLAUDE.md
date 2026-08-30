@@ -25,7 +25,7 @@ pico_switch/
 │       ├── main.cpp              # Produktiv-Firmware (LVGL-UI + Pico-Link)
 │       └── serial_loopback_test.cpp  # UART-Loopback-Diagnose (env loopback)
 └── pico/
-    ├── upload.sh                 # Baut + kopiert UF2 auf BOOTSEL-Laufwerk
+    ├── upload.sh                  # Baut + flasht UF2 (Default: USB/picotool ohne BOOTSEL)
     ├── switch_w6300_relay_native.uf2
     └── switch_server/            # Pico-Firmware (C++/Pico-SDK, CMake)
         ├── CMakeLists.txt    # Targets: switch_w6300_relay, uart_loopback_test
@@ -322,15 +322,19 @@ Hinweise:
 
 ```bash
 cd pico
-./upload.sh              # baut UF2 und kopiert es aufs BOOTSEL-Laufwerk
+./upload.sh              # baut UF2 und flasht per picotool OHNE BOOTSEL-Taste (Default)
 # ./upload.sh -c         # Clean-Build erzwingen
 # ./upload.sh -m rueckm  # Eingangsmodus Rückmeldung statt Taster (Default: taster)
 # ./upload.sh -w         # EINMAL-Werksreset: löscht beim Boot die Persistenz (siehe unten)
-# ./upload.sh /pfad/zum/RP2350   # alternatives Ziel-Laufwerk
+# ./upload.sh -d         # klassisch: UF2 auf BOOTSEL-Laufwerk kopieren
+# ./upload.sh /pfad/zum/RP2350   # UF2 auf bestimmtes BOOTSEL-Laufwerk kopieren
 ```
 
-- Pico beim Flashen mit gedrückter **BOOTSEL**-Taste anstecken
-  (Ziel-Laufwerk `/media/<user>/RP2350`).
+- **Default (ohne BOOTSEL):** Der laufende Pico wird per `picotool` über USB in
+  BOOTSEL versetzt, geflasht und neu gestartet. Voraussetzung: laufende Firmware
+  per USB verbunden + `picotool` (mit USB-Support) installiert.
+- **BOOTSEL-Laufwerk (`-d`/`--drive` bzw. UPLOAD_DIR-Argument):** Pico mit
+  gedrückter **BOOTSEL**-Taste anstecken (Ziel-Laufwerk `/media/<user>/RP2350`).
 - Eingangsmodus (Taster/Rückmeldung) per `-m|--mode` bzw. `-DINPUT_MODE=` (siehe 2.9).
 - Werksreset (Persistenz löschen) per `-w|--wipe-persist` bzw. `-DPERSIST_WIPE=ON` (siehe 6.1).
 - Targets: `switch_w6300_relay` (Produktiv), `uart_loopback_test` (Diagnose).
