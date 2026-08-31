@@ -127,10 +127,19 @@ cd fw_update                          # enthaelt das Skript + die FW-Images
 ./pico-switch-fw-update.sh -e         # nur ESP32 (*.bin aus aktuellem Verzeichnis)
 ./pico-switch-fw-update.sh -i fw.uf2  # Image explizit (Endung wählt Ziel)
 ./pico-switch-fw-update.sh --esp32-image app.bin --port /dev/ttyUSB0
+./pico-switch-fw-update.sh -w         # Werksreset: Pico-Persistenz loeschen (kein Image noetig)
+./pico-switch-fw-update.sh -w -p      # erst Persistenz loeschen, dann Pico flashen
 ```
 
 - **Images** liegen im aktuellen Verzeichnis (`*.uf2` = Pico, `*.bin` = ESP32)
   oder werden per `-i` / `--pico-image` / `--esp32-image` angegeben.
+- **`-w` / `--wipe-persist`** macht einen **Werksreset** der Pico-Persistenz
+  (Namen, Szenen, Netzwerk, Benutzer/Passwoerter): Das Skript löscht die
+  Persistenz-Slots direkt per `picotool erase` (keine spezielle Firmware/kein
+  Build nötig, anders als bei `pico/upload.sh -w`). Vor dem Löschen kommt eine
+  Sicherheitsabfrage (mit `-y` automatisch bestätigt). Danach gelten die Defaults
+  (Login `admin` / `sw234`). Allein nutzbar (kein Image) oder mit `-p`: dann wird
+  **zuerst gelöscht, dann geflasht**.
 - Das Skript **prüft die benötigten Programme** (`picotool` bzw. `esptool`).
   Fehlt etwas, listet es die fehlenden Komponenten auf und fragt, ob sie
   installiert werden sollen; nach der Installation fragt es, ob geflasht wird.

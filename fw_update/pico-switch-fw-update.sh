@@ -36,10 +36,15 @@ PICOTOOL_PREBUILT_URL="${PICOTOOL_PREBUILT_URL:-}"
 
 WANT_PICO=0
 WANT_ESP32=0
+WANT_WIPE=0
 PICO_IMAGE=""
 ESP32_IMAGE=""
 ASSUME_YES=0
 EXPLICIT_TARGET=0
+
+# XIP-Basis und Sektorgroesse des RP2350-Flash (fuer den Persistenz-Wipe).
+PICO_XIP_BASE=$(( 0x10000000 ))
+PICO_FLASH_SECTOR=$(( 0x1000 ))
 
 # ESP-Kommando (wird bei der Tool-Pruefung gesetzt)
 ESPTOOL_CMD=()
@@ -54,7 +59,11 @@ Flasht vorgefertigte Firmware ohne BOOTSEL-Taste:
 Zielauswahl:
   -p, --pico              Pico-Firmware flashen
   -e, --esp32             ESP32-Firmware flashen
-  (ohne -p/-e: Auto - es wird geflasht, wozu ein Image gefunden/angegeben wird)
+  -w, --wipe-persist      Werksreset: gespeicherte Pico-Einstellungen (Persistenz)
+                          per picotool loeschen. Ohne -p/-e allein nutzbar
+                          (kein Image noetig); mit -p wird zuerst geloescht,
+                          dann geflasht.
+  (ohne -p/-e/-w: Auto - es wird geflasht, wozu ein Image gefunden/angegeben wird)
 
 Images (sonst im aktuellen Verzeichnis gesucht):
   -i, --image PATH        FW-Image; Typ nach Endung (.uf2=Pico, .bin=ESP32),
@@ -103,6 +112,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     -p|--pico)  WANT_PICO=1; EXPLICIT_TARGET=1; shift ;;
     -e|--esp32) WANT_ESP32=1; EXPLICIT_TARGET=1; shift ;;
+    -w|--wipe-persist) WANT_WIPE=1; EXPLICIT_TARGET=1; shift ;;
     -i|--image) [[ $# -ge 2 ]] || die "$1 benoetigt ein Argument"; add_image_by_ext "$2"; shift 2 ;;
     --pico-image)  [[ $# -ge 2 ]] || die "$1 benoetigt ein Argument"; PICO_IMAGE="$2"; WANT_PICO=1; EXPLICIT_TARGET=1; shift 2 ;;
     --esp32-image) [[ $# -ge 2 ]] || die "$1 benoetigt ein Argument"; ESP32_IMAGE="$2"; WANT_ESP32=1; EXPLICIT_TARGET=1; shift 2 ;;
@@ -336,8 +346,8 @@ declare -a MISSING_FUNCS=()
 check_dependencies() {
   MISSING_NAMES=()
   MISSING_FUNCS=()
-  if [[ "${WANT_PICO}" -eq 1 ]] && ! have_picotool; then
-    MISSING_NAMES+=("picotool (Pico-Flash ueber USB)")
+  if [[ ( "${WANT_PICO}" -eq 1 || "${WANT_WIPE}" -eq 1 ) ]] && ! have_picotool; then
+    MISSING_NAMES+=("picotool (Pico-Flash/Werksreset ueber USB)")
     MISSING_FUNCS+=("install_picotool")
   fi
   if [[ "${WANT_ESP32}" -eq 1 ]] && ! detect_esptool; then
@@ -349,6 +359,7 @@ check_dependencies() {
 echo "== pico-switch Firmware-Update =="
 [[ "${WANT_PICO}"  -eq 1 ]] && echo "  Pico  : ${PICO_IMAGE}"
 [[ "${WANT_ESP32}" -eq 1 ]] && echo "  ESP32 : ${ESP32_IMAGE} (offset ${ESP32_OFFSET})"
+[[ "${WANT_WIPE}"  -eq 1 ]] && echo "  Pico  : Werksreset (Persistenz loeschen)"
 echo
 
 check_dependencies
@@ -386,6 +397,74 @@ if [[ "${INSTALLED_SOMETHING}" -eq 1 ]]; then
 fi
 
 # ---- Flash-Routinen -------------------------------------------------------
+# Ermittelt die Flash-Groesse des verbundenen Pico in Bytes (Default 2 MiB).
+# Erwartet den Pico im BOOTSEL-Modus (info -a liefert dort die Flash-Groesse).
+pico_flash_size_bytes() {
+  local out sizek
+  out="$("${PICOTOOL}" info -a 2>/dev/null || true)"
+  sizek="$(printf '%s\n' "${out}" | grep -oiE 'flash size:[[:space:]]*[0-9]+K' \
+           | grep -oE '[0-9]+' | head -1)"
+  if [[ -n "${sizek}" ]]; then
+    echo $(( sizek * 1024 ))
+  else
+    echo $(( 2048 * 1024 ))
+  fi
+}
+
+# Wartet, bis der Pico im BOOTSEL-Modus ansprechbar ist (Timeout in Sekunden).
+wait_bootsel() {
+  local timeout="${1:-10}" i=0
+  while (( i < timeout * 5 )); do
+    "${PICOTOOL}" info >/dev/null 2>&1 && return 0
+    sleep 0.2; (( i++ )) || true
+  done
+  return 1
+}
+
+# Versetzt den laufenden Pico einmalig in den BOOTSEL-Modus und laesst ihn dort.
+# So laufen anschliessende erase-Aufrufe ohne weitere Reboots (keine USB-Races).
+enter_bootsel() {
+  "${PICOTOOL}" info >/dev/null 2>&1 && return 0   # bereits in BOOTSEL
+  echo "    versetze Pico in BOOTSEL-Modus ..."
+  "${PICOTOOL}" reboot -f -u >/dev/null 2>&1 || true
+  wait_bootsel 10 || die "Pico nicht im BOOTSEL-Modus erreichbar (USB-Verbindung pruefen)."
+}
+
+# Werksreset: loescht die Persistenz-Slots direkt per picotool.
+# Die relativen Offsets spiegeln persist_flash_offsets() aus relay_server.cpp:
+# 256K/512K/1024K/Flashende, jeweils minus ein Sektor (4 KiB).
+# Der Pico wird EINMAL in BOOTSEL versetzt und bleibt dort (Caller startet neu).
+wipe_pico_persist() {
+  have_picotool || die "picotool fuer den Werksreset benoetigt."
+  enter_bootsel
+  local flash_bytes; flash_bytes="$(pico_flash_size_bytes)"
+  local -a offsets=(
+    $(( 256 * 1024  - PICO_FLASH_SECTOR ))
+    $(( 512 * 1024  - PICO_FLASH_SECTOR ))
+    $(( 1024 * 1024 - PICO_FLASH_SECTOR ))
+    $(( flash_bytes - PICO_FLASH_SECTOR ))
+  )
+  echo "==> Pico-Werksreset: loesche Persistenz-Slots (Flash ${flash_bytes} Bytes)"
+  local off from to
+  local -a erased=()
+  for off in "${offsets[@]}"; do
+    (( off < 0 || off + PICO_FLASH_SECTOR > flash_bytes )) && continue
+    # Doppelte Offsets (kleiner Flash) ueberspringen.
+    local seen=0 e
+    for e in "${erased[@]:-}"; do [[ "${e}" == "${off}" ]] && seen=1; done
+    (( seen )) && continue
+    erased+=("${off}")
+
+    from=$(( PICO_XIP_BASE + off ))
+    to=$(( from + PICO_FLASH_SECTOR ))
+    printf '    Slot @ 0x%08X ... ' "${from}"
+    # Ohne -f: Pico ist bereits in BOOTSEL und bleibt es (kein Reboot dazwischen).
+    "${PICOTOOL}" erase -r "$(printf '0x%X' ${from})" "$(printf '0x%X' ${to})" >/dev/null
+    echo "geloescht"
+  done
+  echo "    Persistenz geloescht. Naechster Start nutzt Defaults (admin / sw234)."
+}
+
 flash_pico() {
   echo "==> Pico flashen (ohne BOOTSEL) via picotool: ${PICO_IMAGE}"
   # -f: laufenden Pico per Software in BOOTSEL versetzen; -x: danach starten
@@ -415,8 +494,27 @@ flash_esp32() {
 }
 
 # ---- Upload ausfuehren ----------------------------------------------------
+# Reihenfolge: erst Persistenz loeschen (falls -w), dann flashen.
+if [[ "${WANT_WIPE}" -eq 1 ]]; then
+  echo
+  echo "!! WARNUNG: Werksreset loescht ALLE gespeicherten Pico-Einstellungen"
+  echo "!!          (Namen, Szenen, Netzwerk, Benutzer/Passwoerter, ...)."
+  if ask_yesno "Persistenz jetzt wirklich loeschen?"; then
+    wipe_pico_persist
+  else
+    echo "Werksreset abgebrochen."
+    WANT_WIPE=0
+    [[ "${WANT_PICO}" -eq 0 && "${WANT_ESP32}" -eq 0 ]] && { echo; echo "Nichts zu tun."; exit 0; }
+  fi
+fi
 if [[ "${WANT_PICO}"  -eq 1 ]]; then flash_pico;  fi
 if [[ "${WANT_ESP32}" -eq 1 ]]; then flash_esp32; fi
+
+# Standalone-Werksreset ohne Pico-Flash: den Pico aus BOOTSEL neu starten,
+# damit die vorhandene Firmware mit Defaults weiterlaeuft.
+if [[ "${WANT_WIPE}" -eq 1 && "${WANT_PICO}" -eq 0 ]]; then
+  "${PICOTOOL}" reboot >/dev/null 2>&1 || true
+fi
 
 echo
 echo "Fertig."
