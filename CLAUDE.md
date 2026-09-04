@@ -46,15 +46,16 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
 
 | Konstante | Wert | Bedeutung |
 |---|---|---|
-| `RELAY_COUNT` | 8 | Anzahl der Relais/Kanäle |
+| `MAX_RELAIS` | 8 | Konfigurierbare Relais (Typ einfach/4-fach) |
+| `MAX_BUTTONS` | 8 | Logische Bedien-Buttons (Web + ESP-Display) |
+| `MAX_OUTPUTS` | 4 | Ausgänge je Relais (einfach 1, 4-fach 4) |
 | `SCENE_COUNT` | 8 | Anzahl konfigurierbarer Szenen |
-| `RELAY_PINS` | `{2,3,4,5,6,7,8,9}` | GPIO-Pins der Relais |
-| `FEEDBACK_PINS` | `{10,11,12,13,14,26,27,28}` | GPIO-Eingänge: Rückmeldungen **oder** Taster (je nach `INPUT_MODE`, siehe 2.9) |
-| `RELAY_ACTIVE_LOW` | `false` | Schaltlogik (HIGH = aktiv) |
-| `DEFAULT_FEEDBACK_TIMEOUT_MS` | 500 | Standardfrist für eine Rückmeldung (Modus `rueckm`) |
-| `DEFAULT_INPUT_TIME_MS` | 25 (Taster) / 500 (Rückm.) | Default für Entprell-/Rückmeldezeit je Eingangsmodus |
-| `DEFAULT_IMPULSE_MS` | 300 | Standard-Impulszeit je Ausgang (Impuls-Modus) |
-| `MIN/MAX_IMPULSE_MS` | 100 / 2000 | Grenzen der je Ausgang einstellbaren Impulszeit |
+| `OUTPUT_PINS` | `{2,3,4,5,6,7,8,9}` | Pool wählbarer Ausgangs-GPIOs |
+| `INPUT_PINS` | `{10,11,12,13,14,26,27,28}` | Fest gepaarter Eingangs-Pool (Rückmeldung **oder** Taster je Ausgang, siehe 2.9): `OUTPUT_PINS[i]`↔`INPUT_PINS[i]` |
+| `DEFAULT_FEEDBACK_TIMEOUT_MS` | 500 | Standardfrist für eine Rückmeldung |
+| `DEFAULT_DEBOUNCE_MS` | 25 | Taster-Entprellzeit (Bereich 5–2000) |
+| `DEFAULT_IMPULSE_MS` | 300 | Standard-Impulszeit je Relais (Impuls-Modus) |
+| `MIN/MAX_IMPULSE_MS` | 100 / 2000 | Grenzen der je Relais einstellbaren Impulszeit |
 | `HTTP_PORT` | 80 | Webserver-Port |
 | `HTTP_SOCKET_COUNT` | 8 | Parallele W6300-Sockets |
 | `DHCP_SELECT_PIN` | 15 | HIGH/offen → DHCP, LOW → statische IP |
@@ -72,13 +73,16 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
 
 ### 2.3 Persistenz (Flash)
 
-- Struktur `PersistedConfig` (aktuell `PERSIST_VERSION = 8`), passt in einen Flash-Sektor.
-- Versionierte Migration: `PersistedConfigV1` bis `V7` / aktuell.
-- Gespeichert: Relais-Zustände, Namen, Titel/Untertitel, `public_access`,
-  Benutzer, API-Keys, statische IP/SN/GW, Szenen-Modus + Szenen
-  (Name, aktiv-Flag, je Kanal Aktion aus/ein/unverändert), Ausgangspolaritäten,
-  Rückmeldeaktivierung/-polarität, gemeinsame Rückmeldezeit sowie je Ausgang
-  Impuls-Aktivierung und Impulszeit (100–2000 ms).
+- Struktur `PersistedConfig` (aktuell `PERSIST_VERSION = 9`), passt in einen Flash-Sektor.
+- **Keine** Migration von älteren Versionen: bei fremdem Magic/anderer Version liefert
+  `load_config()` `LayoutChanged` → Write-Lock → Werksreset per `./upload.sh -w` (siehe 6.1).
+- Gespeichert: je Relais (`enabled`, Typ, Name, Ausgangspolarität, Impuls+Impulszeit,
+  je Ausgang gewählte Ausgangs-GPIO + Eingangsrolle/-polarität, `active_output`),
+  je Button (`enabled`, Name, Relais-Index, Eingang-Index), Titel/Untertitel,
+  `public_access`, Benutzer, API-Keys, statische IP/SN/GW, Szenen-Modus + Szenen
+  (Name, aktiv-Flag, je **Button** Aktion aus/ein/unverändert), gemeinsame
+  Rückmeldezeit und Taster-Entprellzeit. Der Eingang-GPIO wird nicht gespeichert,
+  sondern aus der Ausgangs-GPIO abgeleitet (`input_for_output()`).
 - CMake-Check `check_persist_overlap.cmake` stellt sicher, dass der Flash-Slot
   nicht mit dem Binär-Image kollidiert.
 
@@ -89,15 +93,16 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
 | GET | `/`, `/index.html` | Haupt-UI |
 | GET/POST | `/login`, `/logout` | Authentifizierung |
 | GET/POST | `/password` | Passwort ändern |
-| GET/POST | `/config` | Titel/Namen/`public_access`, Ausgangspolarität (Low aktiv), je Ausgang Impuls (Checkbox + Impulszeit 100–2000 ms, Default 300), Rückmeldung + Rückmeldezeit; Namensfelder zeigen die zugehörige Ausgangs-GPIO (z. B. „Relais 1 (GP2)"). Im Taster-Modus (2.9) entfallen die Felder „Rückmeldung"/„Rückm. LOW"; stattdessen erscheinen „Taster GPxx" + Pseudo-LED und „Taster-Entprellzeit" |
+| GET/POST | `/config` | „Ausgänge/Buttons": Titel/Untertitel/`public_access` + je Button (1–8) Aktiv, Name, Zuordnung zu einem Relais-Eingang (Dropdown) |
+| GET/POST | `/relais` | „Relais" (Admin): je Relais (1–8) Aktiv, Typ (einfach/2-fach/4-fach), Name, Low aktiv, Impuls+Impulszeit; je Ausgang wählbare Ausgangs-GPIO + Eingangsrolle (keine/Rückmeldung/Taster) + LOW; globale Rückmeldezeit und Taster-Entprellzeit |
 | GET/POST | `/network` | Statische IP-Einstellungen |
 | GET/POST | `/admin` | Benutzer-/API-Key-Verwaltung |
 | GET | `/me` | Aktueller Benutzer |
 | GET | `/active_users` | Aktive Sessions/Gäste |
-| GET | `/state` | Relais-Zustand (JSON, inkl. `scene_mode`; im Taster-Modus zusätzlich `buttons`) |
-| GET/POST | `/scenes` | Szenen-Modus + Szenen konfigurieren (Admin) |
+| GET | `/state` | Button-Zustände (JSON: `relays`=Button-EIN, `names`, `feedback_errors`, `scene_mode`, `buttons`=Tasterdruck) |
+| GET/POST | `/scenes` | Szenen-Modus + Szenen konfigurieren (Aktion je **Button**, Admin) |
 | GET | `/events` | Server-Sent Events (Live-Status) |
-| POST | `/relay/<idx>/<on\|off\|toggle>` | Relais schalten |
+| POST | `/relay/<idx>/<on\|off\|toggle>` | Button `idx` (0–7) schalten/umschalten |
 | POST | `/scene/<idx>/activate` | Szene `idx` aktivieren |
 
 - **Auth**: Session-Token (Cookie), Rollen, optionaler `public_access`, API-Keys.
@@ -108,11 +113,12 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
 - Umschaltbar per Checkbox auf `/scenes` (Admin). Persistiert als `scene_mode`.
 - Bei aktivem Szenen-Modus steuern die 8 Buttons (Web + ESP-Display) **nicht**
   direkt die Relais, sondern aktivieren je eine Szene.
-- Eine **Szene** hat: `enabled`-Flag, Name und je Kanal eine Aktion:
-  `0` = aus, `1` = ein, `2` = unverändert (Kanal wird nicht angetastet).
+- Eine **Szene** hat: `enabled`-Flag, Name und je **Button** eine Aktion:
+  `0` = aus, `1` = ein, `2` = unverändert. Bei 2-/4-fach-Buttons wirkt nur `1` (wählt
+  den Ausgang an); `0` ist bedeutungslos (gegenseitiger Ausschluss) und wird übersprungen.
 - Aktivierung ist **momentan** (kein gehaltener Aktiv-Zustand): `activate_scene()`
   wendet die Aktionen an, speichert bei Änderung und meldet den neuen Zustand.
-- Direkte Relais-Steuerung (`/relay/...`) bleibt parallel nutzbar.
+- Direkte Button-Steuerung (`/relay/...`) bleibt parallel nutzbar.
 
 ### 2.5 ESP-Link (`namespace esp_link`)
 
@@ -156,9 +162,10 @@ auf die **zwei Kerne** des RP2350 aufgeteilt:
 | Loop | `net_core_main()` **nicht** — reiner `while`-Loop in `main()` | `net_core_main()` |
 
 - **core0** (`main()` nach `multicore_launch_core1`): `esp_link::service()`,
-  `service_relay_feedback()`, `service_impulses()` (beendet abgelaufene, parallel
-  laufende Ausgangs-Impulse), Versand des IP-Status. Fasst **niemals** W6300 oder
-  Flash an → kann nicht blockieren → Relais reagieren sofort.
+  `service_tasters()` (physische Taster), `service_relay_feedback()`,
+  `service_impulses()` (beendet abgelaufene, parallel laufende Ausgangs-Impulse),
+  Versand des IP-Status. Fasst **niemals** W6300 oder Flash an → kann nicht
+  blockieren → Relais reagieren sofort.
 - **core1** (`net_core_main()`): `init_network()`, `service_socket()×8`,
   `keepalive_sse()`, `service_network_link()` (LAN-Reconnect) und die Flash-/SSE-
   Aufträge von core0.
@@ -194,52 +201,45 @@ Reihenfolge bewusst so gewählt, damit das Display **unabhängig vom DHCP** frü
 1. `esp_link::init()` **als Erstes** → treibt `GP0` (TX) sofort auf UART-Idle (High),
    damit der ESP beim Kaltstart keine floatende/Break-Leitung sieht.
 2. `stdio_init_all()`.
-3. Relais- und Config-Init (`init_relays`, `load_config`, `init_users`, `apply_relay`).
-   Ab hier stehen Titel/Namen/Zustände fest → Display kann bedient werden.
+3. Relais-/Config-Init (`init_relays`, `load_config`, `resolve_gpios`,
+   `configure_inputs`, `init_users`, `apply_all_outputs`). Ab hier stehen
+   Titel/Namen/Zustände fest → Display kann bedient werden.
 4. `esp_link::flush_rx()`.
 5. `recursive_mutex_init(&g_state_mtx)`, `flash_safe_execute_core_init()` (core0 als
    Lockout-Victim), `g_core1_started = true`, dann `multicore_launch_core1(net_core_main)`.
 6. **core0** tritt in den Steuer-Loop ein (`esp_link::service`, IP-Status,
-   `service_relay_feedback`, `service_impulses`). **core1** startet parallel `net_core_main()`:
+   `service_tasters`, `service_relay_feedback`, `service_impulses`). **core1** startet parallel `net_core_main()`:
    `init_network()` (DHCP/statisch, darf blockieren), Sockets öffnen, dann
    `service_socket()×8` / `keepalive_sse()` / `service_network_link()` plus Flash-/
    SSE-Aufträge. Der Boot des Displays hängt damit **nicht** mehr am DHCP.
 
-### 2.9 Eingangsmodus: Taster oder Rückmeldung (Compilerschalter)
+### 2.9 Relais-/Button-Modell und Eingangsrolle (Laufzeit)
 
-Die Funktion der Eingänge `FEEDBACK_PINS` (GP10/11/12/13/14/26/27/28) ist ein
-**Kompilierzeit**-Schalter — es wird immer nur *ein* Modus in die Firmware gebaut:
+Zentrale Abstraktion (kein Compileschalter mehr):
 
-- **`INPUT_MODE=rueckm`** — klassische physische Relais-Rückmeldung
-  (`service_relay_feedback()`), je Kanal aktivier-/polarisierbar, gemeinsame
-  Rückmeldezeit.
-- **`INPUT_MODE=taster`** (**Default**) — die Eingänge sind entprellte Taster.
-  Aktiviert das Define `INPUT_MODE_BUTTON`.
-
-Umschaltung:
-
-- CMake: `-DINPUT_MODE=taster` bzw. `-DINPUT_MODE=rueckm`
-  (`pico/switch_server/CMakeLists.txt`, Default `taster`; ungültiger Wert → Fehler).
-- Upload-Skript: `pico/upload.sh -m|--mode taster|rueckm` (Default `taster`),
-  auch per Umgebungsvariable `INPUT_MODE`.
-
-Verhalten im Taster-Modus (`INPUT_MODE_BUTTON`):
-
-- Alle Eingänge fix mit **Pull-Up** (`configure_feedback_inputs()`), Taster schaltet
-  gegen GND (gedrückt = LOW).
-- **Entprellung** über den gemeinsamen Wert `feedback_timeout_ms` (Feld
-  „Taster-Entprellzeit", Default `DEFAULT_INPUT_TIME_MS = 25 ms`, Bereich
-  `MIN/MAX_INPUT_TIME_MS = 5…2000 ms`).
-- `service_buttons()` läuft auf **core0** (parallel zu den Web-/ESP-Buttons). Eine
-  steigende Flanke (Druck) **toggelt** das zugehörige Relais (`set_relay()`); im
-  Szenen-Modus löst sie stattdessen die Szene `i` aus (`activate_scene()`).
-- `state_json()` liefert zusätzlich das Array `buttons` (entprellter Tasterzustand);
-  die Konfig-Seite zeigt je Kanal „Taster GPxx" + eine **Pseudo-LED**, die per
-  `/state`-Polling (400 ms) den gedrückten Taster anzeigt.
-- Die **ESP-Anzeige bleibt unverändert** (kein Taster-spezifisches Protokoll).
-- **Persistenz:** gleiche `PersistedConfig`-Struktur wie im Rückmeldemodus; die
-  Entprellzeit nutzt das vorhandene `feedback_timeout_ms`-Feld → **keine**
-  Versionserhöhung. Die `feedback_*`-Felder sind im Taster-Modus ungenutzt.
+- **Relais** (1–8, Seite `/relais`): Typ `einfach` (1 Eingang → 1 Ausgangs-GPIO),
+  `2-fach` (2 Ausgänge) oder `4-fach` (4 Ausgänge). `2-fach`/`4-fach` sind gegenseitig
+  ausschließend — „immer genau ein Ausgang aktiv". Je Relais optional **Impuls** (nur der gewählte Ausgang wird
+  gepulst/gesetzt, die Anzeige `active_output` bleibt gelatcht) und Ausgangspolarität.
+- **Ausgangs-GPIO** pro Ausgang frei aus `OUTPUT_PINS` wählbar; der **Eingang-GPIO**
+  ergibt sich fest daraus (`input_for_output()`: `OUTPUT_PINS[i]`↔`INPUT_PINS[i]`).
+  `resolve_gpios()` validiert (kein Ausgangs-Pin doppelt) und leitet `in_gpio` ab.
+- **Eingangsrolle je Ausgang** (Laufzeit, Dropdown auf `/relais`):
+  - `Rückmeldung` — `service_relay_feedback()` prüft `in_gpio` gegen den erwarteten
+    Zustand, Polarität je Ausgang; gemeinsame `feedback_timeout_ms`.
+  - `Taster` — `service_tasters()` (core0) entprellt (`taster_debounce_ms`, Pull-Up,
+    gedrückt = LOW) und löst bei steigender Flanke denselben Relais-Eingang aus wie
+    der zugehörige logische Button.
+  - `keine` — Eingang ungenutzt.
+- **Buttons** (1–8, Seite `/config`): logische Bedienelemente (Web + ESP-Display),
+  jeder verweist explizit auf einen Relais-Eingang. Ein `einfach`-Relais belegt 1
+  Button-Ziel, ein `4-fach`-Relais 4 (gegenseitig ausschließend → auf dem Display
+  ist stets nur einer der 4 „ON").
+- Kern-Naht: `activate_relais_input()`/`button_command()` (logische Buttons + ESP
+  `SWn` + `/relay/<idx>`) und `service_tasters()` (physische Taster) laufen über
+  dieselbe Aktion; die **ESP-Anzeige/Protokoll bleiben button-indiziert unverändert**.
+- `state_json()` liefert `relays` (Button-EIN), `feedback_errors` (Fehler des
+  referenzierten Ausgangs) und `buttons` (Tasterdruck des referenzierten Ausgangs).
 
 ---
 
@@ -324,7 +324,6 @@ Hinweise:
 cd pico
 ./upload.sh              # baut UF2 und flasht per picotool OHNE BOOTSEL-Taste (Default)
 # ./upload.sh -c         # Clean-Build erzwingen
-# ./upload.sh -m rueckm  # Eingangsmodus Rückmeldung statt Taster (Default: taster)
 # ./upload.sh -w         # EINMAL-Werksreset: löscht beim Boot die Persistenz (siehe unten)
 # ./upload.sh -d         # klassisch: UF2 auf BOOTSEL-Laufwerk kopieren
 # ./upload.sh /pfad/zum/RP2350   # UF2 auf bestimmtes BOOTSEL-Laufwerk kopieren
@@ -335,7 +334,8 @@ cd pico
   per USB verbunden + `picotool` (mit USB-Support) installiert.
 - **BOOTSEL-Laufwerk (`-d`/`--drive` bzw. UPLOAD_DIR-Argument):** Pico mit
   gedrückter **BOOTSEL**-Taste anstecken (Ziel-Laufwerk `/media/<user>/RP2350`).
-- Eingangsmodus (Taster/Rückmeldung) per `-m|--mode` bzw. `-DINPUT_MODE=` (siehe 2.9).
+- Eingangsrolle (Rückmeldung/Taster) ist eine **Laufzeit**-Option je Relais-Ausgang
+  (Seite `/relais`, siehe 2.9) — kein Build-Schalter mehr.
 - Werksreset (Persistenz löschen) per `-w|--wipe-persist` bzw. `-DPERSIST_WIPE=ON` (siehe 6.1).
 - Targets: `switch_w6300_relay` (Produktiv), `uart_loopback_test` (Diagnose).
 - Serielles Debug/CDC: `/dev/ttyACM0`, 115200.
@@ -367,7 +367,7 @@ cd pico
 
 - **Schritt 2 ist zwingend:** Solange die `-w`-Firmware läuft, löscht **jeder**
   Boot erneut. Erst die normale Firmware macht die Persistenz wieder dauerhaft.
-- `-w` immer zusammen mit dem gewünschten `-m taster|rueckm` angeben (Default `taster`).
+- Reihenfolge beachten: erst `-w` flashen (löscht die Persistenz), dann ohne `-w` neu flashen.
 - Nach dem Reset gelten die Defaults inkl. Login `admin` / `sw234`.
 - `upload.sh` übergibt `-DPERSIST_WIPE=ON|OFF` **immer explizit** an CMake, damit
   ein `ON` nicht im CMake-Cache hängen bleibt und Schritt 2 sicher `OFF` baut.

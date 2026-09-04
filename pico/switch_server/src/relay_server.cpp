@@ -35,27 +35,23 @@ extern wiznet_spi_handle_t spi_handle;
 }
 
 namespace cfg {
-constexpr uint8_t RELAY_COUNT = 8;
+constexpr uint8_t MAX_RELAIS = 8;    // konfigurierbare Relais (je Typ einfach/4-fach)
+constexpr uint8_t MAX_BUTTONS = 8;   // logische Bedien-Buttons (Web + ESP-Display)
 constexpr uint8_t SCENE_COUNT = 8;
-constexpr std::array<uint8_t, RELAY_COUNT> RELAY_PINS = {2, 3, 4, 5, 6, 7, 8, 9};
-constexpr std::array<uint8_t, RELAY_COUNT> FEEDBACK_PINS = {10, 11, 12, 13, 14, 26, 27, 28};
-constexpr bool RELAY_ACTIVE_LOW = false;
+constexpr uint8_t MAX_OUTPUTS = 4;   // Ausgaenge je Relais (einfach nutzt 1, 4-fach 4)
+// Ausgangs-Pool (frei je Relais-Ausgang waehlbar) und fest gepaarter Eingangs-Pool
+// (Rueckmeldung ODER Taster): OUTPUT_PINS[i] <-> INPUT_PINS[i].
+constexpr std::array<uint8_t, 8> OUTPUT_PINS = {2, 3, 4, 5, 6, 7, 8, 9};
+constexpr std::array<uint8_t, 8> INPUT_PINS = {10, 11, 12, 13, 14, 26, 27, 28};
 constexpr uint32_t DEFAULT_FEEDBACK_TIMEOUT_MS = 500;
 constexpr uint32_t MIN_FEEDBACK_TIMEOUT_MS = 10;
 constexpr uint32_t MAX_FEEDBACK_TIMEOUT_MS = 10000;
+constexpr uint32_t DEFAULT_DEBOUNCE_MS = 25;   // Taster-Entprellzeit
+constexpr uint32_t MIN_DEBOUNCE_MS = 5;
+constexpr uint32_t MAX_DEBOUNCE_MS = 2000;
 constexpr uint16_t DEFAULT_IMPULSE_MS = 300;
 constexpr uint16_t MIN_IMPULSE_MS = 100;
 constexpr uint16_t MAX_IMPULSE_MS = 2000;
-#ifdef INPUT_MODE_BUTTON
-// Taster-Modus: GP10-28 sind entprellte Taster; die Zeit ist die Entprellzeit.
-constexpr uint32_t DEFAULT_INPUT_TIME_MS = 25;
-constexpr uint32_t MIN_INPUT_TIME_MS = 5;
-constexpr uint32_t MAX_INPUT_TIME_MS = 2000;
-#else
-constexpr uint32_t DEFAULT_INPUT_TIME_MS = DEFAULT_FEEDBACK_TIMEOUT_MS;
-constexpr uint32_t MIN_INPUT_TIME_MS = MIN_FEEDBACK_TIMEOUT_MS;
-constexpr uint32_t MAX_INPUT_TIME_MS = MAX_FEEDBACK_TIMEOUT_MS;
-#endif
 constexpr uint16_t HTTP_PORT = 80;
 constexpr uint8_t HTTP_SOCKET_COUNT = 8;
 constexpr uint8_t MAX_SSE_SOCKETS = HTTP_SOCKET_COUNT > 2 ? HTTP_SOCKET_COUNT - 2 : 1;
@@ -68,7 +64,7 @@ constexpr uint32_t SESSION_LIFETIME_MS = 30UL * 60UL * 1000UL;
 constexpr uint32_t SSE_KEEPALIVE_MS = 1UL * 1000UL;
 constexpr uint32_t GUEST_LIFETIME_MS = 60UL * 1000UL;
 constexpr uint32_t PERSIST_MAGIC = 0x4f453558;
-constexpr uint32_t PERSIST_VERSION = 8;
+constexpr uint32_t PERSIST_VERSION = 9;
 constexpr size_t MAX_USERS = 8;
 constexpr size_t MAX_API_KEYS = 8;
 constexpr size_t MAX_GUEST_VISITORS = 16;
@@ -88,149 +84,33 @@ struct PersistedApiKey {
   char comment[65];
 };
 
-struct PersistedConfigV1 {
-  uint32_t magic;
-  uint32_t version;
-  uint8_t relay_states[cfg::RELAY_COUNT];
-  uint8_t public_access;
-  char relay_names[cfg::RELAY_COUNT][33];
-  char site_title[65];
-  char site_subtitle[65];
-  uint32_t user_count;
-  PersistedUser users[cfg::MAX_USERS];
-  uint32_t api_key_count;
-  char api_keys[cfg::MAX_API_KEYS][17];
+// Ein Relais im Flash. Je Ausgang k: gewaehlte Ausgangs-GPIO (out_gpio, -1=frei),
+// Eingangs-Rolle (in_role: 0=keine, 1=Rueckmeldung, 2=Taster) und Rueckmelde-
+// Polaritaet. Der Eingangs-GPIO wird beim Laden aus out_gpio abgeleitet.
+struct PersistedRelais {
+  uint8_t enabled;
+  uint8_t type;          // 0=einfach, 1=4-fach
+  char name[33];
+  uint8_t active_low;    // Ausgangspolaritaet
+  uint8_t impulse;
+  uint16_t impulse_ms;
+  int8_t out_gpio[cfg::MAX_OUTPUTS];
+  uint8_t in_role[cfg::MAX_OUTPUTS];
+  uint8_t in_active_low[cfg::MAX_OUTPUTS];
+  uint8_t active_output; // 0=aus/keiner, 1..4=aktiver Ausgang
 };
 
-struct PersistedConfigV2 {
-  uint32_t magic;
-  uint32_t version;
-  uint8_t relay_states[cfg::RELAY_COUNT];
-  uint8_t public_access;
-  char relay_names[cfg::RELAY_COUNT][33];
-  char site_title[65];
-  char site_subtitle[65];
-  uint32_t user_count;
-  PersistedUser users[cfg::MAX_USERS];
-  uint32_t api_key_count;
-  PersistedApiKey api_keys[cfg::MAX_API_KEYS];
-};
-
-struct PersistedConfigV3 {
-  uint32_t magic;
-  uint32_t version;
-  uint8_t relay_states[cfg::RELAY_COUNT];
-  uint8_t public_access;
-  char relay_names[cfg::RELAY_COUNT][33];
-  char site_title[65];
-  char site_subtitle[65];
-  uint32_t user_count;
-  PersistedUser users[cfg::MAX_USERS];
-  uint32_t api_key_count;
-  PersistedApiKey api_keys[cfg::MAX_API_KEYS];
-  uint8_t static_ip[4];
-  uint8_t static_sn[4];
-  uint8_t static_gw[4];
-};
-
-struct PersistedConfigV4 {
-  uint32_t magic;
-  uint32_t version;
-  uint8_t relay_states[cfg::RELAY_COUNT];
-  uint8_t public_access;
-  char relay_names[cfg::RELAY_COUNT][33];
-  char site_title[65];
-  char site_subtitle[65];
-  uint32_t user_count;
-  PersistedUser users[cfg::MAX_USERS];
-  uint32_t api_key_count;
-  PersistedApiKey api_keys[cfg::MAX_API_KEYS];
-  uint8_t static_ip[4];
-  uint8_t static_sn[4];
-  uint8_t static_gw[4];
-  uint8_t scene_mode;
-  uint8_t scene_enabled[cfg::SCENE_COUNT];
-  char scene_names[cfg::SCENE_COUNT][33];
-  uint8_t scene_action[cfg::SCENE_COUNT][cfg::RELAY_COUNT];
-};
-
-struct PersistedConfigV5 {
-  uint32_t magic;
-  uint32_t version;
-  uint8_t relay_states[cfg::RELAY_COUNT];
-  uint8_t public_access;
-  char relay_names[cfg::RELAY_COUNT][33];
-  char site_title[65];
-  char site_subtitle[65];
-  uint32_t user_count;
-  PersistedUser users[cfg::MAX_USERS];
-  uint32_t api_key_count;
-  PersistedApiKey api_keys[cfg::MAX_API_KEYS];
-  uint8_t static_ip[4];
-  uint8_t static_sn[4];
-  uint8_t static_gw[4];
-  uint8_t scene_mode;
-  uint8_t scene_enabled[cfg::SCENE_COUNT];
-  char scene_names[cfg::SCENE_COUNT][33];
-  uint8_t scene_action[cfg::SCENE_COUNT][cfg::RELAY_COUNT];
-  uint8_t active_scene;
-};
-
-struct PersistedConfigV6 {
-  uint32_t magic;
-  uint32_t version;
-  uint8_t relay_states[cfg::RELAY_COUNT];
-  uint8_t public_access;
-  char relay_names[cfg::RELAY_COUNT][33];
-  char site_title[65];
-  char site_subtitle[65];
-  uint32_t user_count;
-  PersistedUser users[cfg::MAX_USERS];
-  uint32_t api_key_count;
-  PersistedApiKey api_keys[cfg::MAX_API_KEYS];
-  uint8_t static_ip[4];
-  uint8_t static_sn[4];
-  uint8_t static_gw[4];
-  uint8_t scene_mode;
-  uint8_t scene_enabled[cfg::SCENE_COUNT];
-  char scene_names[cfg::SCENE_COUNT][33];
-  uint8_t scene_action[cfg::SCENE_COUNT][cfg::RELAY_COUNT];  // 0=aus, 1=ein, 2=unveraendert
-  uint8_t active_scene;  // 0=keine, 1..SCENE_COUNT=zuletzt aktive Szene
-  uint8_t relay_active_low[cfg::RELAY_COUNT];  // je Kanal: 1=LOW-aktiv, 0=HIGH-aktiv
-};
-
-struct PersistedConfigV7 {
-  uint32_t magic;
-  uint32_t version;
-  uint8_t relay_states[cfg::RELAY_COUNT];
-  uint8_t public_access;
-  char relay_names[cfg::RELAY_COUNT][33];
-  char site_title[65];
-  char site_subtitle[65];
-  uint32_t user_count;
-  PersistedUser users[cfg::MAX_USERS];
-  uint32_t api_key_count;
-  PersistedApiKey api_keys[cfg::MAX_API_KEYS];
-  uint8_t static_ip[4];
-  uint8_t static_sn[4];
-  uint8_t static_gw[4];
-  uint8_t scene_mode;
-  uint8_t scene_enabled[cfg::SCENE_COUNT];
-  char scene_names[cfg::SCENE_COUNT][33];
-  uint8_t scene_action[cfg::SCENE_COUNT][cfg::RELAY_COUNT];
-  uint8_t active_scene;
-  uint8_t relay_active_low[cfg::RELAY_COUNT];
-  uint8_t feedback_enabled[cfg::RELAY_COUNT];
-  uint8_t feedback_active_low[cfg::RELAY_COUNT];
-  uint32_t feedback_timeout_ms;
+struct PersistedButton {
+  uint8_t enabled;
+  char name[33];
+  int8_t relais_idx;     // -1 = keine Bindung
+  uint8_t input_idx;     // 0 (einfach) bzw. 0..3 (4-fach)
 };
 
 struct PersistedConfig {
   uint32_t magic;
   uint32_t version;
-  uint8_t relay_states[cfg::RELAY_COUNT];
   uint8_t public_access;
-  char relay_names[cfg::RELAY_COUNT][33];
   char site_title[65];
   char site_subtitle[65];
   uint32_t user_count;
@@ -243,14 +123,12 @@ struct PersistedConfig {
   uint8_t scene_mode;
   uint8_t scene_enabled[cfg::SCENE_COUNT];
   char scene_names[cfg::SCENE_COUNT][33];
-  uint8_t scene_action[cfg::SCENE_COUNT][cfg::RELAY_COUNT];
+  uint8_t scene_action[cfg::SCENE_COUNT][cfg::MAX_BUTTONS];  // je Button 0=aus,1=ein,2=unveraendert
   uint8_t active_scene;
-  uint8_t relay_active_low[cfg::RELAY_COUNT];
-  uint8_t feedback_enabled[cfg::RELAY_COUNT];
-  uint8_t feedback_active_low[cfg::RELAY_COUNT];
   uint32_t feedback_timeout_ms;
-  uint8_t relay_impulse[cfg::RELAY_COUNT];
-  uint16_t relay_impulse_ms[cfg::RELAY_COUNT];
+  uint32_t taster_debounce_ms;
+  PersistedRelais relais[cfg::MAX_RELAIS];
+  PersistedButton buttons[cfg::MAX_BUTTONS];
 };
 
 struct User {
@@ -290,11 +168,51 @@ enum class ConfigLoadResult {
   LayoutChanged
 };
 
-// Szene: pro Relais 0=aus, 1=ein, 2=unveraendert. Nur aktivierte Szenen sind bedienbar.
+// Szene: pro Button 0=aus, 1=ein, 2=unveraendert. Nur aktivierte Szenen sind bedienbar.
 struct Scene {
   bool enabled = false;
   std::string name;
-  std::array<uint8_t, cfg::RELAY_COUNT> action = {2, 2, 2, 2, 2, 2, 2, 2};
+  std::array<uint8_t, cfg::MAX_BUTTONS> action = {2, 2, 2, 2, 2, 2, 2, 2};
+};
+
+enum class RelayType : uint8_t { Simple = 0, Quad = 1, Dual = 2 };
+enum class InRole : uint8_t { None = 0, Feedback = 1, Taster = 2 };
+
+// Physisches Relais. out_gpio (vom Nutzer gewaehlt) wird persistiert; in_gpio wird
+// daraus via input_for_output() abgeleitet. active_output ist der (gelatchte)
+// Anzeige-/Steuerzustand: 0=aus/keiner, 1..4=aktiver Ausgang.
+struct Relais {
+  bool enabled = false;
+  RelayType type = RelayType::Simple;
+  std::string name;
+  bool impulse = false;
+  uint16_t impulse_ms = cfg::DEFAULT_IMPULSE_MS;
+  bool active_low = false;
+  int8_t out_gpio[cfg::MAX_OUTPUTS] = {-1, -1, -1, -1};
+  uint8_t in_role[cfg::MAX_OUTPUTS] = {0, 0, 0, 0};       // InRole
+  bool in_active_low[cfg::MAX_OUTPUTS] = {false, false, false, false};
+  // abgeleitet / Laufzeit (nicht persistiert):
+  int8_t in_gpio[cfg::MAX_OUTPUTS] = {-1, -1, -1, -1};
+  bool valid = false;                                      // GPIOs aufgeloest, keine Doppelbelegung
+  uint8_t active_output = 0;
+  bool imp_active[cfg::MAX_OUTPUTS] = {};
+  uint32_t imp_deadline[cfg::MAX_OUTPUTS] = {};
+  bool fb_expected[cfg::MAX_OUTPUTS] = {};                 // erwarteter Rueckmeldezustand je Ausgang
+  bool fb_pending[cfg::MAX_OUTPUTS] = {};
+  bool fb_error[cfg::MAX_OUTPUTS] = {};
+  uint32_t fb_deadline[cfg::MAX_OUTPUTS] = {};
+  int8_t fb_source_scene[cfg::MAX_OUTPUTS] = {-1, -1, -1, -1};
+  bool btn_raw[cfg::MAX_OUTPUTS] = {};                     // Taster-Entprellung je Ausgang
+  bool btn_pressed[cfg::MAX_OUTPUTS] = {};
+  uint32_t btn_since[cfg::MAX_OUTPUTS] = {};
+};
+
+// Logischer Bedien-Button (Web + ESP-Display). Verweist auf einen Relais-Eingang.
+struct Button {
+  bool enabled = false;
+  std::string name;
+  int8_t relais_idx = -1;
+  uint8_t input_idx = 0;
 };
 
 static wiz_NetInfo g_net_info = {
@@ -317,26 +235,13 @@ static wiz_NetInfo g_net_info = {
 #endif
 };
 
-static std::array<bool, cfg::RELAY_COUNT> relay_states = {false, false, false, false, false, false, false, false};
-static std::array<std::string, cfg::RELAY_COUNT> relay_names;
-static std::array<bool, cfg::RELAY_COUNT> relay_active_low = {false, false, false, false, false, false, false, false};
-static std::array<bool, cfg::RELAY_COUNT> relay_impulse{};
-static std::array<uint16_t, cfg::RELAY_COUNT> relay_impulse_ms = {300, 300, 300, 300, 300, 300, 300, 300};
-static std::array<bool, cfg::RELAY_COUNT> impulse_active{};        // Impuls laeuft gerade (je Kanal)
-static std::array<uint32_t, cfg::RELAY_COUNT> impulse_deadline{};  // Ablaufzeitpunkt des Impulses
-static std::array<bool, cfg::RELAY_COUNT> feedback_enabled{};
-static std::array<bool, cfg::RELAY_COUNT> feedback_active_low{};
-static uint32_t feedback_timeout_ms = cfg::DEFAULT_INPUT_TIME_MS;
-static std::array<bool, cfg::RELAY_COUNT> feedback_pending{};
-static std::array<bool, cfg::RELAY_COUNT> feedback_error{};
-static std::array<uint32_t, cfg::RELAY_COUNT> feedback_deadline{};
-static std::array<int8_t, cfg::RELAY_COUNT> feedback_source_scene = {-1, -1, -1, -1, -1, -1, -1, -1};
+static uint8_t outputs_count(const Relais &rl);  // Vorwaerts-Deklaration (load_config nutzt sie frueh)
+
+static std::array<Relais, cfg::MAX_RELAIS> relais{};
+static std::array<Button, cfg::MAX_BUTTONS> buttons{};
+static uint32_t feedback_timeout_ms = cfg::DEFAULT_FEEDBACK_TIMEOUT_MS;
+static uint32_t taster_debounce_ms = cfg::DEFAULT_DEBOUNCE_MS;
 static std::array<bool, cfg::SCENE_COUNT> scene_feedback_error{};
-#ifdef INPUT_MODE_BUTTON
-static std::array<bool, cfg::RELAY_COUNT> button_pressed{};   // entprellter Tasterzustand (true = gedrueckt)
-static std::array<bool, cfg::RELAY_COUNT> button_raw{};       // zuletzt gelesener Rohpegel (true = gedrueckt)
-static std::array<uint32_t, cfg::RELAY_COUNT> button_since{}; // Zeitpunkt der letzten Rohpegel-Aenderung
-#endif
 static std::string site_title = "Relais-Steuerung";
 static std::string site_subtitle = "Relais-&Uuml;bersicht";
 static std::string esp_fw_version = "-";  // vom ESP-Display per UART gemeldet (VER:)
@@ -709,19 +614,35 @@ static void save_config() {
     StateLock snapshot;  // konsistenter Snapshot des geteilten Steuerzustands unter Lock
   config.magic = cfg::PERSIST_MAGIC;
   config.version = cfg::PERSIST_VERSION;
-  for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) {
-    config.relay_states[i] = relay_states[i] ? 1 : 0;
-    copy_cstr(config.relay_names[i], sizeof(config.relay_names[i]), relay_names[i]);
-    config.relay_active_low[i] = relay_active_low[i] ? 1 : 0;
-    config.relay_impulse[i] = relay_impulse[i] ? 1 : 0;
-    config.relay_impulse_ms[i] = relay_impulse_ms[i];
-    config.feedback_enabled[i] = feedback_enabled[i] ? 1 : 0;
-    config.feedback_active_low[i] = feedback_active_low[i] ? 1 : 0;
-  }
   config.feedback_timeout_ms = feedback_timeout_ms;
+  config.taster_debounce_ms = taster_debounce_ms;
   config.public_access = public_access ? 1 : 0;
   copy_cstr(config.site_title, sizeof(config.site_title), site_title);
   copy_cstr(config.site_subtitle, sizeof(config.site_subtitle), site_subtitle);
+  for (uint8_t r = 0; r < cfg::MAX_RELAIS; ++r) {
+    PersistedRelais &pr = config.relais[r];
+    const Relais &rl = relais[r];
+    pr.enabled = rl.enabled ? 1 : 0;
+    pr.type = static_cast<uint8_t>(rl.type);
+    copy_cstr(pr.name, sizeof(pr.name), rl.name);
+    pr.active_low = rl.active_low ? 1 : 0;
+    pr.impulse = rl.impulse ? 1 : 0;
+    pr.impulse_ms = rl.impulse_ms;
+    pr.active_output = rl.active_output;
+    for (uint8_t k = 0; k < cfg::MAX_OUTPUTS; ++k) {
+      pr.out_gpio[k] = rl.out_gpio[k];
+      pr.in_role[k] = rl.in_role[k];
+      pr.in_active_low[k] = rl.in_active_low[k] ? 1 : 0;
+    }
+  }
+  for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
+    PersistedButton &pb = config.buttons[b];
+    const Button &bt = buttons[b];
+    pb.enabled = bt.enabled ? 1 : 0;
+    copy_cstr(pb.name, sizeof(pb.name), bt.name);
+    pb.relais_idx = bt.relais_idx;
+    pb.input_idx = bt.input_idx;
+  }
 
   for (const auto &entry : users_db) {
     if (config.user_count >= cfg::MAX_USERS) break;
@@ -743,7 +664,7 @@ static void save_config() {
   for (uint8_t s = 0; s < cfg::SCENE_COUNT; ++s) {
     config.scene_enabled[s] = scenes[s].enabled ? 1 : 0;
     copy_cstr(config.scene_names[s], sizeof(config.scene_names[s]), scenes[s].name);
-    for (uint8_t r = 0; r < cfg::RELAY_COUNT; ++r) config.scene_action[s][r] = scenes[s].action[r];
+    for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) config.scene_action[s][b] = scenes[s].action[b];
   }
   config.active_scene = (active_scene >= 0 && active_scene < cfg::SCENE_COUNT) ? static_cast<uint8_t>(active_scene + 1) : 0;
 
@@ -770,296 +691,46 @@ static void save_config() {
 
 static ConfigLoadResult load_config() {
   bool saw_invalid = false;
-  bool migrated = false;
   for (uintptr_t offset : persist_flash_offsets()) {
     if (!persist_flash_offset_usable(offset)) continue;
     const PersistedConfig *config = persisted_config_ptr(offset);
-    if (is_erased_flash(config, sizeof(PersistedConfig))) {
-      continue;
-    }
-    if (config->magic != cfg::PERSIST_MAGIC) {
-      saw_invalid = true;
-      continue;
-    }
-    if (config->version != cfg::PERSIST_VERSION) {
-      // Versuch, von einer alten Layout-Version zu migrieren.
-      if (config->version == 7) {
-        const PersistedConfigV7 *old_cfg = reinterpret_cast<const PersistedConfigV7 *>(config);
-        printf("Migration von Persistenz-Layout v7 -> v%lu (Slot 0x%08lx).\n",
-               static_cast<unsigned long>(cfg::PERSIST_VERSION), static_cast<unsigned long>(offset));
-        for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) {
-          relay_states[i] = old_cfg->relay_states[i] != 0;
-          if (old_cfg->relay_names[i][0]) relay_names[i] = old_cfg->relay_names[i];
-          relay_active_low[i] = old_cfg->relay_active_low[i] != 0;
-          feedback_enabled[i] = old_cfg->feedback_enabled[i] != 0;
-          feedback_active_low[i] = old_cfg->feedback_active_low[i] != 0;
-          relay_impulse[i] = false;
-          relay_impulse_ms[i] = cfg::DEFAULT_IMPULSE_MS;
-        }
-        feedback_timeout_ms = std::clamp<uint32_t>(old_cfg->feedback_timeout_ms,
-                                                    cfg::MIN_INPUT_TIME_MS, cfg::MAX_INPUT_TIME_MS);
-        public_access = old_cfg->public_access != 0;
-        if (old_cfg->site_title[0]) site_title = old_cfg->site_title;
-        if (old_cfg->site_subtitle[0]) site_subtitle = old_cfg->site_subtitle;
-        users_db.clear();
-        uint32_t user_count = std::min<uint32_t>(old_cfg->user_count, cfg::MAX_USERS);
-        for (uint32_t i = 0; i < user_count; ++i) {
-          const PersistedUser &stored = old_cfg->users[i];
-          if (stored.name[0] && stored.hash[0])
-            users_db[normalize_username(stored.name)] = {stored.hash, stored.role[0] ? stored.role : "user"};
-        }
-        api_keys_db.clear();
-        uint32_t key_count = std::min<uint32_t>(old_cfg->api_key_count, cfg::MAX_API_KEYS);
-        for (uint32_t i = 0; i < key_count; ++i) {
-          if (old_cfg->api_keys[i].key[0]) api_keys_db.push_back({old_cfg->api_keys[i].key, old_cfg->api_keys[i].comment});
-        }
-        std::memcpy(static_ip.data(), old_cfg->static_ip, static_ip.size());
-        std::memcpy(static_sn.data(), old_cfg->static_sn, static_sn.size());
-        std::memcpy(static_gw.data(), old_cfg->static_gw, static_gw.size());
-        scene_mode = old_cfg->scene_mode != 0;
-        for (uint8_t s = 0; s < cfg::SCENE_COUNT; ++s) {
-          scenes[s].enabled = old_cfg->scene_enabled[s] != 0;
-          scenes[s].name = old_cfg->scene_names[s];
-          for (uint8_t r = 0; r < cfg::RELAY_COUNT; ++r) {
-            uint8_t action = old_cfg->scene_action[s][r];
-            scenes[s].action[r] = action <= 2 ? action : 2;
-          }
-        }
-        if (old_cfg->active_scene >= 1 && old_cfg->active_scene <= cfg::SCENE_COUNT &&
-            scenes[old_cfg->active_scene - 1].enabled) {
-          active_scene = static_cast<int>(old_cfg->active_scene) - 1;
-        } else {
-          active_scene = -1;
-        }
-        migrated = true;
-        break;
-      }
-      if (config->version == 6) {
-        const PersistedConfigV6 *old_cfg = reinterpret_cast<const PersistedConfigV6 *>(config);
-        printf("Migration von Persistenz-Layout v6 -> v%lu (Slot 0x%08lx).\n",
-               static_cast<unsigned long>(cfg::PERSIST_VERSION), static_cast<unsigned long>(offset));
-        for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) {
-          relay_states[i] = old_cfg->relay_states[i] != 0;
-          if (old_cfg->relay_names[i][0]) relay_names[i] = old_cfg->relay_names[i];
-          relay_active_low[i] = old_cfg->relay_active_low[i] != 0;
-        }
-        public_access = old_cfg->public_access != 0;
-        if (old_cfg->site_title[0]) site_title = old_cfg->site_title;
-        if (old_cfg->site_subtitle[0]) site_subtitle = old_cfg->site_subtitle;
-        users_db.clear();
-        uint32_t user_count = std::min<uint32_t>(old_cfg->user_count, cfg::MAX_USERS);
-        for (uint32_t i = 0; i < user_count; ++i) {
-          const PersistedUser &stored = old_cfg->users[i];
-          if (stored.name[0] && stored.hash[0])
-            users_db[normalize_username(stored.name)] = {stored.hash, stored.role[0] ? stored.role : "user"};
-        }
-        api_keys_db.clear();
-        uint32_t key_count = std::min<uint32_t>(old_cfg->api_key_count, cfg::MAX_API_KEYS);
-        for (uint32_t i = 0; i < key_count; ++i) {
-          if (old_cfg->api_keys[i].key[0]) api_keys_db.push_back({old_cfg->api_keys[i].key, old_cfg->api_keys[i].comment});
-        }
-        std::memcpy(static_ip.data(), old_cfg->static_ip, static_ip.size());
-        std::memcpy(static_sn.data(), old_cfg->static_sn, static_sn.size());
-        std::memcpy(static_gw.data(), old_cfg->static_gw, static_gw.size());
-        scene_mode = old_cfg->scene_mode != 0;
-        for (uint8_t s = 0; s < cfg::SCENE_COUNT; ++s) {
-          scenes[s].enabled = old_cfg->scene_enabled[s] != 0;
-          scenes[s].name = old_cfg->scene_names[s];
-          for (uint8_t r = 0; r < cfg::RELAY_COUNT; ++r) {
-            uint8_t action = old_cfg->scene_action[s][r];
-            scenes[s].action[r] = action <= 2 ? action : 2;
-          }
-        }
-        if (old_cfg->active_scene >= 1 && old_cfg->active_scene <= cfg::SCENE_COUNT &&
-            scenes[old_cfg->active_scene - 1].enabled) {
-          active_scene = static_cast<int>(old_cfg->active_scene) - 1;
-        } else {
-          active_scene = -1;
-        }
-        migrated = true;
-        break;
-      }
-      if (config->version == 5) {
-        const PersistedConfigV5 *old_cfg = reinterpret_cast<const PersistedConfigV5 *>(config);
-        printf("Migration von Persistenz-Layout v5 -> v%lu (Slot 0x%08lx).\n",
-               static_cast<unsigned long>(cfg::PERSIST_VERSION), static_cast<unsigned long>(offset));
-        for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) {
-          relay_states[i] = old_cfg->relay_states[i] != 0;
-          if (old_cfg->relay_names[i][0]) relay_names[i] = old_cfg->relay_names[i];
-          relay_active_low[i] = cfg::RELAY_ACTIVE_LOW;
-        }
-        public_access = old_cfg->public_access != 0;
-        if (old_cfg->site_title[0]) site_title = old_cfg->site_title;
-        if (old_cfg->site_subtitle[0]) site_subtitle = old_cfg->site_subtitle;
-        users_db.clear();
-        uint32_t user_count = std::min<uint32_t>(old_cfg->user_count, cfg::MAX_USERS);
-        for (uint32_t i = 0; i < user_count; ++i) {
-          const PersistedUser &stored = old_cfg->users[i];
-          if (stored.name[0] && stored.hash[0])
-            users_db[normalize_username(stored.name)] = {stored.hash, stored.role[0] ? stored.role : "user"};
-        }
-        api_keys_db.clear();
-        uint32_t key_count = std::min<uint32_t>(old_cfg->api_key_count, cfg::MAX_API_KEYS);
-        for (uint32_t i = 0; i < key_count; ++i) {
-          if (old_cfg->api_keys[i].key[0]) api_keys_db.push_back({old_cfg->api_keys[i].key, old_cfg->api_keys[i].comment});
-        }
-        std::memcpy(static_ip.data(), old_cfg->static_ip, static_ip.size());
-        std::memcpy(static_sn.data(), old_cfg->static_sn, static_sn.size());
-        std::memcpy(static_gw.data(), old_cfg->static_gw, static_gw.size());
-        scene_mode = old_cfg->scene_mode != 0;
-        for (uint8_t s = 0; s < cfg::SCENE_COUNT; ++s) {
-          scenes[s].enabled = old_cfg->scene_enabled[s] != 0;
-          scenes[s].name = old_cfg->scene_names[s];
-          for (uint8_t r = 0; r < cfg::RELAY_COUNT; ++r) {
-            uint8_t a = old_cfg->scene_action[s][r];
-            scenes[s].action[r] = (a <= 2) ? a : 2;
-          }
-        }
-        if (old_cfg->active_scene >= 1 && old_cfg->active_scene <= cfg::SCENE_COUNT &&
-            scenes[old_cfg->active_scene - 1].enabled) {
-          active_scene = static_cast<int>(old_cfg->active_scene) - 1;
-        } else {
-          active_scene = -1;
-        }
-        migrated = true;
-        break;
-      }
-      if (config->version == 4) {
-        const PersistedConfigV4 *old_cfg = reinterpret_cast<const PersistedConfigV4 *>(config);
-        printf("Migration von Persistenz-Layout v4 -> v%lu (Slot 0x%08lx).\n",
-               static_cast<unsigned long>(cfg::PERSIST_VERSION), static_cast<unsigned long>(offset));
-        for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) {
-          relay_states[i] = old_cfg->relay_states[i] != 0;
-          if (old_cfg->relay_names[i][0]) relay_names[i] = old_cfg->relay_names[i];
-        }
-        public_access = old_cfg->public_access != 0;
-        if (old_cfg->site_title[0]) site_title = old_cfg->site_title;
-        if (old_cfg->site_subtitle[0]) site_subtitle = old_cfg->site_subtitle;
-        users_db.clear();
-        uint32_t user_count = std::min<uint32_t>(old_cfg->user_count, cfg::MAX_USERS);
-        for (uint32_t i = 0; i < user_count; ++i) {
-          const PersistedUser &stored = old_cfg->users[i];
-          if (stored.name[0] && stored.hash[0])
-            users_db[normalize_username(stored.name)] = {stored.hash, stored.role[0] ? stored.role : "user"};
-        }
-        api_keys_db.clear();
-        uint32_t key_count = std::min<uint32_t>(old_cfg->api_key_count, cfg::MAX_API_KEYS);
-        for (uint32_t i = 0; i < key_count; ++i) {
-          if (old_cfg->api_keys[i].key[0]) api_keys_db.push_back({old_cfg->api_keys[i].key, old_cfg->api_keys[i].comment});
-        }
-        std::memcpy(static_ip.data(), old_cfg->static_ip, static_ip.size());
-        std::memcpy(static_sn.data(), old_cfg->static_sn, static_sn.size());
-        std::memcpy(static_gw.data(), old_cfg->static_gw, static_gw.size());
-        scene_mode = old_cfg->scene_mode != 0;
-        for (uint8_t s = 0; s < cfg::SCENE_COUNT; ++s) {
-          scenes[s].enabled = old_cfg->scene_enabled[s] != 0;
-          scenes[s].name = old_cfg->scene_names[s];
-          for (uint8_t r = 0; r < cfg::RELAY_COUNT; ++r) {
-            uint8_t a = old_cfg->scene_action[s][r];
-            scenes[s].action[r] = (a <= 2) ? a : 2;
-          }
-        }
-        active_scene = -1;
-        migrated = true;
-        break;
-      }
-      if (config->version == 3) {
-        const PersistedConfigV3 *old_cfg = reinterpret_cast<const PersistedConfigV3 *>(config);
-        printf("Migration von Persistenz-Layout v3 -> v%lu (Slot 0x%08lx).\n",
-               static_cast<unsigned long>(cfg::PERSIST_VERSION), static_cast<unsigned long>(offset));
-        for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) {
-          relay_states[i] = old_cfg->relay_states[i] != 0;
-          if (old_cfg->relay_names[i][0]) relay_names[i] = old_cfg->relay_names[i];
-        }
-        public_access = old_cfg->public_access != 0;
-        if (old_cfg->site_title[0]) site_title = old_cfg->site_title;
-        if (old_cfg->site_subtitle[0]) site_subtitle = old_cfg->site_subtitle;
-        users_db.clear();
-        uint32_t user_count = std::min<uint32_t>(old_cfg->user_count, cfg::MAX_USERS);
-        for (uint32_t i = 0; i < user_count; ++i) {
-          const PersistedUser &stored = old_cfg->users[i];
-          if (stored.name[0] && stored.hash[0])
-            users_db[normalize_username(stored.name)] = {stored.hash, stored.role[0] ? stored.role : "user"};
-        }
-        api_keys_db.clear();
-        uint32_t key_count = std::min<uint32_t>(old_cfg->api_key_count, cfg::MAX_API_KEYS);
-        for (uint32_t i = 0; i < key_count; ++i) {
-          if (old_cfg->api_keys[i].key[0]) api_keys_db.push_back({old_cfg->api_keys[i].key, old_cfg->api_keys[i].comment});
-        }
-        std::memcpy(static_ip.data(), old_cfg->static_ip, static_ip.size());
-        std::memcpy(static_sn.data(), old_cfg->static_sn, static_sn.size());
-        std::memcpy(static_gw.data(), old_cfg->static_gw, static_gw.size());
-        migrated = true;
-        break;
-      }
-      if (config->version == 2) {
-        const PersistedConfigV2 *old_cfg = reinterpret_cast<const PersistedConfigV2 *>(config);
-        printf("Migration von Persistenz-Layout v2 -> v%lu (Slot 0x%08lx).\n",
-               static_cast<unsigned long>(cfg::PERSIST_VERSION), static_cast<unsigned long>(offset));
-        for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) {
-          relay_states[i] = old_cfg->relay_states[i] != 0;
-          if (old_cfg->relay_names[i][0]) relay_names[i] = old_cfg->relay_names[i];
-        }
-        public_access = old_cfg->public_access != 0;
-        if (old_cfg->site_title[0]) site_title = old_cfg->site_title;
-        if (old_cfg->site_subtitle[0]) site_subtitle = old_cfg->site_subtitle;
-        users_db.clear();
-        uint32_t user_count = std::min<uint32_t>(old_cfg->user_count, cfg::MAX_USERS);
-        for (uint32_t i = 0; i < user_count; ++i) {
-          const PersistedUser &stored = old_cfg->users[i];
-          if (stored.name[0] && stored.hash[0])
-            users_db[normalize_username(stored.name)] = {stored.hash, stored.role[0] ? stored.role : "user"};
-        }
-        api_keys_db.clear();
-        uint32_t key_count = std::min<uint32_t>(old_cfg->api_key_count, cfg::MAX_API_KEYS);
-        for (uint32_t i = 0; i < key_count; ++i) {
-          if (old_cfg->api_keys[i].key[0]) api_keys_db.push_back({old_cfg->api_keys[i].key, old_cfg->api_keys[i].comment});
-        }
-        migrated = true;
-        break;
-      }
-      if (config->version == 1) {
-        const PersistedConfigV1 *old_cfg = reinterpret_cast<const PersistedConfigV1 *>(config);
-        printf("Migration von Persistenz-Layout v1 -> v%lu (Slot 0x%08lx).\n",
-               static_cast<unsigned long>(cfg::PERSIST_VERSION), static_cast<unsigned long>(offset));
-        for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) {
-          relay_states[i] = old_cfg->relay_states[i] != 0;
-          if (old_cfg->relay_names[i][0]) relay_names[i] = old_cfg->relay_names[i];
-        }
-        public_access = old_cfg->public_access != 0;
-        if (old_cfg->site_title[0]) site_title = old_cfg->site_title;
-        if (old_cfg->site_subtitle[0]) site_subtitle = old_cfg->site_subtitle;
-        users_db.clear();
-        uint32_t user_count = std::min<uint32_t>(old_cfg->user_count, cfg::MAX_USERS);
-        for (uint32_t i = 0; i < user_count; ++i) {
-          const PersistedUser &stored = old_cfg->users[i];
-          if (stored.name[0] && stored.hash[0])
-            users_db[normalize_username(stored.name)] = {stored.hash, stored.role[0] ? stored.role : "user"};
-        }
-        api_keys_db.clear();
-        uint32_t key_count = std::min<uint32_t>(old_cfg->api_key_count, cfg::MAX_API_KEYS);
-        for (uint32_t i = 0; i < key_count; ++i) {
-          if (old_cfg->api_keys[i][0]) api_keys_db.push_back({old_cfg->api_keys[i], ""});
-        }
-        migrated = true;
-        break;
-      }
+    if (is_erased_flash(config, sizeof(PersistedConfig))) continue;
+    if (config->magic != cfg::PERSIST_MAGIC || config->version != cfg::PERSIST_VERSION) {
+      // Kein passendes Layout: bewusst KEINE Migration (Werksreset per -w vorgesehen).
       saw_invalid = true;
       continue;
     }
     printf("Konfiguration aus Persistenz-Slot 0x%08lx geladen.\n", static_cast<unsigned long>(offset));
-    for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) {
-      if (config->relay_names[i][0]) relay_names[i] = config->relay_names[i];
-      relay_active_low[i] = config->relay_active_low[i] != 0;
-      relay_impulse[i] = config->relay_impulse[i] != 0;
-      relay_impulse_ms[i] = std::clamp<uint16_t>(config->relay_impulse_ms[i], cfg::MIN_IMPULSE_MS, cfg::MAX_IMPULSE_MS);
-      relay_states[i] = relay_impulse[i] ? false : (config->relay_states[i] != 0);  // Impulskanaele starten immer AUS
-      feedback_enabled[i] = config->feedback_enabled[i] != 0;
-      feedback_active_low[i] = config->feedback_active_low[i] != 0;
+    for (uint8_t r = 0; r < cfg::MAX_RELAIS; ++r) {
+      const PersistedRelais &pr = config->relais[r];
+      Relais &rl = relais[r];
+      rl.enabled = pr.enabled != 0;
+      rl.type = pr.type == static_cast<uint8_t>(RelayType::Quad) ? RelayType::Quad
+                : pr.type == static_cast<uint8_t>(RelayType::Dual) ? RelayType::Dual
+                : RelayType::Simple;
+      if (pr.name[0]) rl.name = pr.name;
+      rl.active_low = pr.active_low != 0;
+      rl.impulse = pr.impulse != 0;
+      rl.impulse_ms = std::clamp<uint16_t>(pr.impulse_ms, cfg::MIN_IMPULSE_MS, cfg::MAX_IMPULSE_MS);
+      rl.active_output = pr.active_output <= outputs_count(rl) ? pr.active_output : 0;
+      for (uint8_t k = 0; k < cfg::MAX_OUTPUTS; ++k) {
+        rl.out_gpio[k] = pr.out_gpio[k];
+        rl.in_role[k] = pr.in_role[k] <= static_cast<uint8_t>(InRole::Taster) ? pr.in_role[k] : 0;
+        rl.in_active_low[k] = pr.in_active_low[k] != 0;
+      }
+    }
+    for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
+      const PersistedButton &pb = config->buttons[b];
+      Button &bt = buttons[b];
+      bt.enabled = pb.enabled != 0;
+      if (pb.name[0]) bt.name = pb.name;
+      bt.relais_idx = (pb.relais_idx >= 0 && pb.relais_idx < cfg::MAX_RELAIS) ? pb.relais_idx : -1;
+      bt.input_idx = pb.input_idx < cfg::MAX_OUTPUTS ? pb.input_idx : 0;
     }
     feedback_timeout_ms = std::clamp<uint32_t>(config->feedback_timeout_ms,
-                                                cfg::MIN_INPUT_TIME_MS,
-                                                cfg::MAX_INPUT_TIME_MS);
+                                                cfg::MIN_FEEDBACK_TIMEOUT_MS, cfg::MAX_FEEDBACK_TIMEOUT_MS);
+    taster_debounce_ms = std::clamp<uint32_t>(config->taster_debounce_ms,
+                                              cfg::MIN_DEBOUNCE_MS, cfg::MAX_DEBOUNCE_MS);
     public_access = config->public_access != 0;
     if (config->site_title[0]) site_title = config->site_title;
     if (config->site_subtitle[0]) site_subtitle = config->site_subtitle;
@@ -1081,9 +752,9 @@ static ConfigLoadResult load_config() {
     for (uint8_t s = 0; s < cfg::SCENE_COUNT; ++s) {
       scenes[s].enabled = config->scene_enabled[s] != 0;
       scenes[s].name = config->scene_names[s];
-      for (uint8_t r = 0; r < cfg::RELAY_COUNT; ++r) {
-        uint8_t a = config->scene_action[s][r];
-        scenes[s].action[r] = (a <= 2) ? a : 2;
+      for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
+        uint8_t a = config->scene_action[s][b];
+        scenes[s].action[b] = (a <= 2) ? a : 2;
       }
     }
     if (config->active_scene >= 1 && config->active_scene <= cfg::SCENE_COUNT &&
@@ -1092,10 +763,6 @@ static ConfigLoadResult load_config() {
     } else {
       active_scene = -1;
     }
-    return ConfigLoadResult::Loaded;
-  }
-  if (migrated) {
-    save_config();
     return ConfigLoadResult::Loaded;
   }
   return saw_invalid ? ConfigLoadResult::LayoutChanged : ConfigLoadResult::Empty;
@@ -1199,129 +866,225 @@ static void mark_guest_visitor(const std::string &ip) {
   guest_visitors.push_back({ip, expires});
 }
 
-static uint8_t relay_gpio_value(uint8_t idx, bool on) {
-  if (relay_active_low[idx]) return on ? 0 : 1;
+// Anzahl genutzter Ausgaenge/Eingaenge eines Relais (einfach=1, 2-fach=2, 4-fach=4).
+static uint8_t outputs_count(const Relais &rl) {
+  switch (rl.type) {
+    case RelayType::Quad: return 4;
+    case RelayType::Dual: return 2;
+    default: return 1;
+  }
+}
+
+// Index einer Ausgangs-GPIO im OUTPUT_PINS-Pool (-1 = kein Pool-Pin).
+static int output_pool_index(int gpio) {
+  if (gpio < 0) return -1;
+  for (size_t i = 0; i < cfg::OUTPUT_PINS.size(); ++i)
+    if (cfg::OUTPUT_PINS[i] == static_cast<uint8_t>(gpio)) return static_cast<int>(i);
+  return -1;
+}
+
+// Fest gepaarter Eingangs-GPIO zu einer Ausgangs-GPIO (-1 = keiner).
+static int input_for_output(int out_gpio) {
+  const int idx = output_pool_index(out_gpio);
+  return idx < 0 ? -1 : static_cast<int>(cfg::INPUT_PINS[idx]);
+}
+
+// Ausgangspegel je Polaritaet.
+static uint8_t output_gpio_value(const Relais &rl, bool on) {
+  if (rl.active_low) return on ? 0 : 1;
   return on ? 1 : 0;
 }
 
-static void apply_relay(uint8_t idx) {
-  gpio_put(cfg::RELAY_PINS[idx], relay_gpio_value(idx, relay_states[idx]));
+static void apply_output(uint8_t r, uint8_t k, bool on) {
+  if (relais[r].out_gpio[k] < 0) return;
+  gpio_put(static_cast<uint>(relais[r].out_gpio[k]), output_gpio_value(relais[r], on));
 }
 
-static bool feedback_matches(uint8_t idx) {
-  const bool input_high = gpio_get(cfg::FEEDBACK_PINS[idx]) != 0;
-  const bool feedback_on = feedback_active_low[idx] ? !input_high : input_high;
-  return feedback_on == relay_states[idx];
+// Ist der von Button b referenzierte Relais-Eingang aktiv?
+static bool button_is_on(uint8_t b) {
+  const Button &bt = buttons[b];
+  if (!bt.enabled || bt.relais_idx < 0 || bt.relais_idx >= cfg::MAX_RELAIS) return false;
+  const Relais &rl = relais[bt.relais_idx];
+  return rl.active_output == static_cast<uint8_t>(bt.input_idx + 1);
+}
+
+// Rueckmeldung eines Ausgangs (nur wenn Rolle==Feedback) gegen den erwarteten Zustand.
+static bool feedback_matches(uint8_t r, uint8_t k) {
+  const Relais &rl = relais[r];
+  if (rl.in_gpio[k] < 0) return true;
+  const bool input_high = gpio_get(static_cast<uint>(rl.in_gpio[k])) != 0;
+  const bool fb_on = rl.in_active_low[k] ? !input_high : input_high;
+  return fb_on == rl.fb_expected[k];
 }
 
 static void update_scene_feedback_errors() {
   scene_feedback_error.fill(false);
-  for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) {
-    const int8_t scene = feedback_source_scene[i];
-    if (feedback_error[i] && scene >= 0 && scene < cfg::SCENE_COUNT) scene_feedback_error[scene] = true;
+  for (uint8_t r = 0; r < cfg::MAX_RELAIS; ++r) {
+    for (uint8_t k = 0; k < cfg::MAX_OUTPUTS; ++k) {
+      const int8_t scene = relais[r].fb_source_scene[k];
+      if (relais[r].fb_error[k] && scene >= 0 && scene < cfg::SCENE_COUNT) scene_feedback_error[scene] = true;
+    }
   }
 }
 
-static void start_feedback_check(uint8_t idx, int8_t source_scene) {
-  feedback_source_scene[idx] = source_scene;
-  feedback_error[idx] = false;
-  if (!feedback_enabled[idx] || feedback_matches(idx)) {
-    feedback_pending[idx] = false;
-    feedback_source_scene[idx] = -1;
+// Startet die Rueckmeldepruefung eines Ausgangs gegen expected_on.
+static void start_feedback_check(uint8_t r, uint8_t k, bool expected_on, int8_t source_scene) {
+  Relais &rl = relais[r];
+  rl.fb_expected[k] = expected_on;
+  rl.fb_source_scene[k] = source_scene;
+  rl.fb_error[k] = false;
+  if (rl.in_role[k] != static_cast<uint8_t>(InRole::Feedback) || feedback_matches(r, k)) {
+    rl.fb_pending[k] = false;
+    rl.fb_source_scene[k] = -1;
   } else {
-    feedback_pending[idx] = true;
-    feedback_deadline[idx] = millis32() + feedback_timeout_ms;
+    rl.fb_pending[k] = true;
+    rl.fb_deadline[k] = millis32() + feedback_timeout_ms;
   }
   update_scene_feedback_errors();
 }
+
+// Setzt Ausgang k statisch oder startet (on && Impuls) einen Impuls. Unter StateLock.
+static void drive_output_locked(uint8_t r, uint8_t k, bool on, int8_t source_scene) {
+  Relais &rl = relais[r];
+  if (on && rl.impulse) {
+    apply_output(r, k, true);
+    rl.imp_active[k] = true;
+    rl.imp_deadline[k] = millis32() + rl.impulse_ms;
+    rl.fb_pending[k] = false;  // waehrend des Impulses keine Rueckmeldepruefung
+    rl.fb_error[k] = false;
+    rl.fb_expected[k] = true;  // Latch bleibt "ein"
+    rl.fb_source_scene[k] = -1;
+    update_scene_feedback_errors();
+  } else {
+    apply_output(r, k, on);
+    rl.imp_active[k] = false;  // laufenden Impuls bei explizitem Setzen abbrechen
+    start_feedback_check(r, k, on, source_scene);
+  }
+}
+
+// einfach: Ausgang 0 statisch/gepulst auf on setzen; active_output latchen.
+static void relais_set_simple(uint8_t r, bool on, int8_t source_scene) {
+  relais[r].active_output = on ? 1 : 0;
+  drive_output_locked(r, 0, on, source_scene);
+}
+
+// 4-fach: Ausgang k anwaehlen (nur diesen schalten, Geschwister nur logisch aus).
+// Rueckmelde-/Impuls-Laufzeit der Geschwister wird zurueckgesetzt (nur der aktive
+// Ausgang wird ueberwacht).
+static void relais_select_quad(uint8_t r, uint8_t k, int8_t source_scene) {
+  Relais &rl = relais[r];
+  for (uint8_t j = 0; j < outputs_count(rl); ++j) {
+    if (j == k) continue;
+    rl.imp_active[j] = false;
+    rl.fb_pending[j] = false;
+    rl.fb_error[j] = false;
+    rl.fb_source_scene[j] = -1;
+  }
+  rl.active_output = static_cast<uint8_t>(k + 1);
+  drive_output_locked(r, k, true, source_scene);
+}
+
+static bool scene_state_matches(uint8_t idx);
+
+// Fuehrt eine Button-Aktion aus (0=aus, 1=ein, 2=umschalten). Unter StateLock.
+static void apply_button_locked(uint8_t b, int action) {
+  Button &bt = buttons[b];
+  if (!bt.enabled || bt.relais_idx < 0 || bt.relais_idx >= cfg::MAX_RELAIS) return;
+  Relais &rl = relais[bt.relais_idx];
+  if (!rl.valid || !rl.enabled) return;
+  const uint8_t k = bt.input_idx;
+  if (k >= outputs_count(rl)) return;
+  if (rl.type == RelayType::Simple) {
+    const bool on = action == 2 ? (rl.active_output != 1) : (action == 1);
+    relais_set_simple(bt.relais_idx, on, -1);
+  } else {
+    const bool currently = (rl.active_output == static_cast<uint8_t>(k + 1));
+    const bool on = action == 2 ? !currently : (action == 1);
+    if (on) {
+      relais_select_quad(bt.relais_idx, k, -1);
+    } else if (currently) {
+      rl.active_output = 0;
+      drive_output_locked(bt.relais_idx, k, false, -1);
+    }
+  }
+}
+
+// Zentrale Button-Aktion (Web /relay, ESP SWn). Setzt Dirty-Flags fuer core1.
+static void button_command(uint8_t b, int action) {
+  {
+    StateLock lock;
+    apply_button_locked(b, action);
+    if (scene_mode && active_scene >= 0) scene_dirty = !scene_state_matches(active_scene);
+    else active_scene = -1;
+  }
+  g_persist_dirty = true;
+  esp_link_state_dirty = true;
+  g_sse_dirty = true;
+}
+
+static void press_button(uint8_t b) { button_command(b, 2); }
 
 static bool service_relay_feedback() {
   StateLock lock;
   bool changed = false;
   const uint32_t now = millis32();
-  for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) {
-    if (!feedback_enabled[i] || feedback_matches(i)) {
-      if (feedback_pending[i] || feedback_error[i]) changed = true;
-      feedback_pending[i] = false;
-      feedback_error[i] = false;
-      feedback_source_scene[i] = -1;
-    } else if (feedback_pending[i] && static_cast<int32_t>(now - feedback_deadline[i]) >= 0) {
-      feedback_pending[i] = false;
-      feedback_error[i] = true;
-      changed = true;
+  for (uint8_t r = 0; r < cfg::MAX_RELAIS; ++r) {
+    Relais &rl = relais[r];
+    if (!rl.valid || !rl.enabled) continue;
+    for (uint8_t k = 0; k < outputs_count(rl); ++k) {
+      if (rl.in_role[k] != static_cast<uint8_t>(InRole::Feedback)) continue;
+      // 2-/4-fach: nur den aktiven Ausgang ueberwachen (Geschwister sind bistabil/unverwaltet).
+      if (rl.type != RelayType::Simple && rl.active_output != static_cast<uint8_t>(k + 1)) continue;
+      if (feedback_matches(r, k)) {
+        if (rl.fb_pending[k] || rl.fb_error[k]) changed = true;
+        rl.fb_pending[k] = false;
+        rl.fb_error[k] = false;
+        rl.fb_source_scene[k] = -1;
+      } else if (rl.fb_pending[k] && static_cast<int32_t>(now - rl.fb_deadline[k]) >= 0) {
+        rl.fb_pending[k] = false;
+        rl.fb_error[k] = true;
+        changed = true;
+      }
     }
   }
   if (changed) update_scene_feedback_errors();
   return changed;
 }
 
-// Prueft, ob die aktuellen Relaiszustaende der Szenenvorgabe entsprechen
-// ("unveraendert"/Aktion 2 wird ignoriert, da nicht Teil der Szenenkonfig).
+// Prueft, ob die aktuellen Button-Zustaende der Szenenvorgabe entsprechen
+// ("unveraendert"/Aktion 2 wird ignoriert).
 static bool scene_state_matches(uint8_t idx) {
-  for (uint8_t r = 0; r < cfg::RELAY_COUNT; ++r) {
-    const uint8_t a = scenes[idx].action[r];
+  for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
+    const uint8_t a = scenes[idx].action[b];
     if (a == 2) continue;
-    if (relay_states[r] != (a == 1)) return false;
+    if (button_is_on(b) != (a == 1)) return false;
   }
   return true;
 }
 
-// Setzt einen Ausgang statisch oder startet (bei on && Impuls-Modus) einen Impuls.
-// Muss unter StateLock laufen. Bei Impuls wird die Rueckmeldung erst am End-Zustand geprueft.
-static void drive_relay_locked(uint8_t idx, bool on, int8_t source_scene) {
-  if (on && relay_impulse[idx]) {
-    relay_states[idx] = true;
-    apply_relay(idx);
-    impulse_active[idx] = true;
-    impulse_deadline[idx] = millis32() + relay_impulse_ms[idx];
-    feedback_pending[idx] = false;  // waehrend des Impulses keine Rueckmeldepruefung
-    feedback_error[idx] = false;
-    feedback_source_scene[idx] = -1;
-    update_scene_feedback_errors();
-  } else {
-    relay_states[idx] = on;
-    apply_relay(idx);
-    impulse_active[idx] = false;  // laufenden Impuls bei explizitem AUS abbrechen
-    start_feedback_check(idx, source_scene);
-  }
-}
-
-static void set_relay(uint8_t idx, bool on) {
-  bool impulse_ch;
-  {
-    StateLock lock;
-    impulse_ch = relay_impulse[idx];
-    drive_relay_locked(idx, on, -1);
-    if (scene_mode && active_scene >= 0) {
-      scene_dirty = !scene_state_matches(active_scene);  // sauber, sobald wieder die Szenenkonfig erreicht ist
-    } else {
-      active_scene = -1;
-    }
-  }
-  if (!impulse_ch) g_persist_dirty = true;  // Impulskanaele sind momentan -> nicht persistieren
-  esp_link_state_dirty = true;
-  g_sse_dirty = true;
-}
-
-// Laeuft auf core0: beendet abgelaufene Impulse. Jeder Kanal hat eine eigene
-// Deadline -> parallele Impulse blockieren sich nicht. Rueckgabe: Zustand geaendert.
+// Laeuft auf core0: beendet abgelaufene Impulse. Der Ausgang geht auf Idle, die
+// Anzeige (active_output) bleibt gelatcht. Rueckgabe: Zustand geaendert.
 static bool service_impulses() {
   StateLock lock;
   bool changed = false;
   const uint32_t now = millis32();
-  for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) {
-    if (impulse_active[i] && static_cast<int32_t>(now - impulse_deadline[i]) >= 0) {
-      impulse_active[i] = false;
-      relay_states[i] = false;
-      apply_relay(i);
-      start_feedback_check(i, -1);  // Rueckmeldung gegen End-Zustand (AUS) pruefen
-      changed = true;
+  for (uint8_t r = 0; r < cfg::MAX_RELAIS; ++r) {
+    Relais &rl = relais[r];
+    if (!rl.valid || !rl.enabled) continue;
+    for (uint8_t k = 0; k < outputs_count(rl); ++k) {
+      if (rl.imp_active[k] && static_cast<int32_t>(now - rl.imp_deadline[k]) >= 0) {
+        rl.imp_active[k] = false;
+        apply_output(r, k, false);  // Impuls-GPIO auf Idle, Latch bleibt
+        const bool latched_on = (rl.active_output == static_cast<uint8_t>(k + 1));
+        start_feedback_check(r, k, latched_on, -1);
+        changed = true;
+      }
     }
   }
   return changed;
 }
 
-// Wendet eine (aktivierte) Szene momentan an: setzt Relais gemaess Vorgabe, ueberspringt "unveraendert".
+// Wendet eine (aktivierte) Szene momentan an: Button-Aktionen aus/ein, "unveraendert" uebersprungen.
 static void activate_scene(uint8_t idx) {
   bool persist = false;
   {
@@ -1331,21 +1094,23 @@ static void activate_scene(uint8_t idx) {
     active_scene = idx;
     scene_dirty = false;
     bool changed = false;
-    for (uint8_t r = 0; r < cfg::RELAY_COUNT; ++r) {
-      const uint8_t a = scenes[idx].action[r];
+    for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
+      const uint8_t a = scenes[idx].action[b];
       if (a == 2) continue;
+      Button &bt = buttons[b];
+      if (!bt.enabled || bt.relais_idx < 0 || bt.relais_idx >= cfg::MAX_RELAIS) continue;
+      Relais &rl = relais[bt.relais_idx];
+      if (!rl.valid || !rl.enabled) continue;
+      const uint8_t k = bt.input_idx;
+      if (k >= outputs_count(rl)) continue;
       const bool on = (a == 1);
-      if (on && relay_impulse[r]) {
-        drive_relay_locked(r, true, static_cast<int8_t>(idx));  // Impuls statt statisch EIN
+      if (rl.type == RelayType::Simple) {
+        relais_set_simple(bt.relais_idx, on, static_cast<int8_t>(idx));
         changed = true;
-        continue;
-      }
-      if (relay_states[r] != on) {
-        relay_states[r] = on;
-        apply_relay(r);
+      } else if (on) {  // 4-fach: nur "ein" waehlt einen Ausgang, "aus" ist bedeutungslos
+        relais_select_quad(bt.relais_idx, k, static_cast<int8_t>(idx));
         changed = true;
       }
-      start_feedback_check(r, static_cast<int8_t>(idx));
     }
     persist = changed || selection_changed;
   }
@@ -1354,36 +1119,40 @@ static void activate_scene(uint8_t idx) {
   g_sse_dirty = true;
 }
 
-#ifdef INPUT_MODE_BUTTON
-// Liest die entprellten Taster (GP10-28). Eine steigende Flanke (Druck) schaltet
-// den zugehoerigen Kanal um (Toggle) bzw. loest im Szenen-Modus die Szene aus.
-// Laeuft auf core0 parallel zu den Web-/ESP-Buttons. Rueckgabe: LED-Zustand geaendert.
-static bool service_buttons() {
+// Laeuft auf core0: liest je Ausgang mit Rolle==Taster den Eingang (Pull-up,
+// gedrueckt=LOW), entprellt und loest bei steigender Flanke den Relais-Eingang aus.
+// Rueckgabe: Anzeige-/Zustandsaenderung (fuer SSE).
+static bool service_tasters() {
   StateLock lock;
   const uint32_t now = millis32();
-  const uint32_t debounce = feedback_timeout_ms;
-  bool led_changed = false;
-  for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) {
-    const bool raw = gpio_get(cfg::FEEDBACK_PINS[i]) == 0;  // Pull-up: gedrueckt = LOW
-    if (raw != button_raw[i]) {
-      button_raw[i] = raw;
-      button_since[i] = now;
-    } else if (raw != button_pressed[i] &&
-               static_cast<int32_t>(now - button_since[i]) >= static_cast<int32_t>(debounce)) {
-      button_pressed[i] = raw;
-      led_changed = true;
-      if (raw) {  // steigende Flanke: Aktion ausloesen
-        if (scene_mode) {
-          if (i < cfg::SCENE_COUNT && scenes[i].enabled) activate_scene(i);
-        } else {
-          set_relay(i, !relay_states[i]);
+  const uint32_t debounce = taster_debounce_ms;
+  bool changed = false;
+  for (uint8_t r = 0; r < cfg::MAX_RELAIS; ++r) {
+    Relais &rl = relais[r];
+    if (!rl.valid || !rl.enabled) continue;
+    for (uint8_t k = 0; k < outputs_count(rl); ++k) {
+      if (rl.in_role[k] != static_cast<uint8_t>(InRole::Taster) || rl.in_gpio[k] < 0) continue;
+      const bool raw = gpio_get(static_cast<uint>(rl.in_gpio[k])) == 0;  // Pull-up: gedrueckt = LOW
+      if (raw != rl.btn_raw[k]) {
+        rl.btn_raw[k] = raw;
+        rl.btn_since[k] = now;
+      } else if (raw != rl.btn_pressed[k] &&
+                 static_cast<int32_t>(now - rl.btn_since[k]) >= static_cast<int32_t>(debounce)) {
+        rl.btn_pressed[k] = raw;
+        changed = true;
+        if (raw) {  // steigende Flanke: gleiche Aktion wie der logische Button
+          if (rl.type == RelayType::Simple) relais_set_simple(r, rl.active_output != 1, -1);
+          else relais_select_quad(r, k, -1);
+          if (scene_mode && active_scene >= 0) scene_dirty = !scene_state_matches(active_scene);
+          else active_scene = -1;
+          esp_link_state_dirty = true;
+          g_persist_dirty = true;
         }
       }
     }
   }
-  return led_changed;
+  return changed;
 }
-#endif
 
 static std::string active_users_array_json() {
   prune_sessions();
@@ -1409,18 +1178,30 @@ static std::string active_users_json(bool include_users) {
   return std::string("{\"active_users\":") + (include_users ? active_users_array_json() : "null") + "}";
 }
 
+// Zustand des von Button b referenzierten Ausgangs: Rueckmeldefehler bzw. Tasterdruck.
+static bool button_feedback_error(uint8_t b) {
+  const Button &bt = buttons[b];
+  if (!bt.enabled || bt.relais_idx < 0 || bt.relais_idx >= cfg::MAX_RELAIS) return false;
+  return relais[bt.relais_idx].fb_error[bt.input_idx];
+}
+static bool button_taster_pressed(uint8_t b) {
+  const Button &bt = buttons[b];
+  if (!bt.enabled || bt.relais_idx < 0 || bt.relais_idx >= cfg::MAX_RELAIS) return false;
+  return relais[bt.relais_idx].btn_pressed[bt.input_idx];
+}
+
 static std::string state_json(bool include_users) {
   prune_sessions();
   StateLock lock;  // geteilten Steuerzustand konsistent lesen; Kopie wird ohne Lock gesendet
   std::string out = "{\"relays\":[";
-  for (size_t i = 0; i < relay_states.size(); ++i) {
-    if (i) out += ',';
-    out += relay_states[i] ? "true" : "false";
+  for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
+    if (b) out += ',';
+    out += button_is_on(b) ? "true" : "false";
   }
   out += "],\"names\":[";
-  for (size_t i = 0; i < relay_names.size(); ++i) {
-    if (i) out += ',';
-    out += '"' + json_escape(relay_names[i]) + '"';
+  for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
+    if (b) out += ',';
+    out += '"' + json_escape(buttons[b].name) + '"';
   }
   out += "],\"title\":\"" + json_escape(site_title) + "\",\"subtitle\":\"" + json_escape(site_subtitle) + "\",\"public\":";
   out += public_access ? "true" : "false";
@@ -1431,24 +1212,21 @@ static std::string state_json(bool include_users) {
   out += ",\"scene_dirty\":";
   out += scene_dirty ? "true" : "false";
   out += ",\"feedback_errors\":[";
-  for (size_t i = 0; i < feedback_error.size(); ++i) {
-    if (i) out += ',';
-    out += feedback_error[i] ? "true" : "false";
+  for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
+    if (b) out += ',';
+    out += button_feedback_error(b) ? "true" : "false";
   }
   out += "],\"scene_errors\":[";
   for (size_t i = 0; i < scene_feedback_error.size(); ++i) {
     if (i) out += ',';
     out += scene_feedback_error[i] ? "true" : "false";
   }
-  out += ']';
-#ifdef INPUT_MODE_BUTTON
-  out += ",\"buttons\":[";
-  for (size_t i = 0; i < button_pressed.size(); ++i) {
-    if (i) out += ',';
-    out += button_pressed[i] ? "true" : "false";
+  out += "],\"buttons\":[";
+  for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
+    if (b) out += ',';
+    out += button_taster_pressed(b) ? "true" : "false";
   }
   out += ']';
-#endif
   out += ",\"active_users\":";
   out += (include_users ? active_users_array_json() : "null");
   out += '}';
@@ -1463,9 +1241,9 @@ static std::string scenes_config_json() {
     out += "{\"en\":";
     out += scenes[s].enabled ? "true" : "false";
     out += ",\"name\":\"" + json_escape(scenes[s].name) + "\",\"act\":[";
-    for (uint8_t r = 0; r < cfg::RELAY_COUNT; ++r) {
-      if (r) out += ',';
-      out += std::to_string(scenes[s].action[r]);
+    for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
+      if (b) out += ',';
+      out += std::to_string(scenes[s].action[b]);
     }
     out += "]}";
   }
@@ -1650,6 +1428,21 @@ static std::string pw_eye_btn() {
   return "<button type=\"button\" class=\"pw-eye\" tabindex=\"-1\" aria-label=\"Passwort anzeigen\" onclick=\"var i=this.parentNode.querySelector('input');var s=i.type=='password';i.type=s?'text':'password';this.classList.toggle('on',s)\">\xF0\x9F\x91\x81</button>";
 }
 
+// Einheitliche horizontale Menueleiste (auf allen Admin-Seiten identisch). Der
+// Speichern-Button ruft die seiteneigene save()-Funktion auf.
+static std::string page_nav_actions() {
+  return "<div class=\"actions\">"
+         "<button onclick=\"location.href='/'\">Uebersicht</button>"
+         "<button class=\"save\" onclick=\"save()\">Speichern</button>"
+         "<button onclick=\"location.href='/config'\">Ausgaenge</button>"
+         "<button onclick=\"location.href='/relais'\">Relais</button>"
+         "<button onclick=\"location.href='/scenes'\">Szenen</button>"
+         "<button onclick=\"location.href='/admin'\">Benutzer/API</button>"
+         "<button onclick=\"location.href='/network'\">Network</button>"
+         "<button class=\"danger\" onclick=\"location.href='/logout'\">Abmelden</button>"
+         "</div>";
+}
+
 static std::string build_login_html(const std::string &next, bool error, const Session *session, const std::string &prefill_username, const std::string &error_message) {
   std::string html = "<!DOCTYPE html><html lang=\"de\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + html_escape(site_title) + " - Anmelden</title><style>html,body{margin:0}body{box-sizing:border-box;font-family:'Segoe UI',sans-serif;background:#121212;color:#e0e0e0;min-height:100vh;padding:108px 24px 24px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start}" + page_header_css() + ".card{background:#1e1e1e;padding:32px 28px;width:100%;max-width:360px;border:1px solid #2d2d2d}h1{font-size:1.3rem;color:#4dabf7;text-align:center}label{font-size:.8rem;font-weight:600;color:#9e9e9e;display:block;margin-top:12px}.card input,.card button{width:100%;padding:10px;margin-top:4px;box-sizing:border-box}.card input{background:#2a2a2a;color:#e0e0e0;border:1px solid #333}.card button{background:#1a3a5c;color:#4dabf7;border:1px solid #1e5a9e;font-weight:700}.actions{display:flex;gap:8px;margin-top:20px}.actions button{margin-top:0}.btn-secondary{background:#2a2a2a;color:#9e9e9e;border-color:#444}.err{color:#ff6b6b;text-align:center}" + std::string(pw_eye_css()) + "</style></head><body>" + page_header_html(session, true) + "<div class=\"card\"><h1>Admin-Anmeldung</h1>";
   if (error) html += "<p class=\"err\">" + (error_message.empty() ? std::string("Falscher Benutzername oder Passwort") : html_escape(error_message)) + "</p>";
@@ -1664,32 +1457,138 @@ static std::string build_password_html(const Session *session, const std::string
   return html;
 }
 
+// Gemeinsames SSE-Verbindungsskript (Conn-Anzeige) fuer die Konfig-Seiten.
+static const char *sse_conn_script() {
+  return "const conn=document.getElementById('conn');let lastSseActivity=0;let lastConnectAttempt=0;let es=null;let reconnectTimer=0;function markConn(ok){if(!conn)return;conn.textContent=ok?'Verbunden':'Getrennt';conn.className=ok?'ok':'err'}function noteSseActivity(){lastSseActivity=Date.now();markConn(true)}function scheduleReconnect(delay=1000){if(reconnectTimer)return;reconnectTimer=setTimeout(()=>{reconnectTimer=0;connectEvents()},delay)}function forceReconnect(){if(es){es.close();es=null}scheduleReconnect(0)}function connectEvents(){if(es)es.close();lastConnectAttempt=Date.now();es=new EventSource('/events');es.onopen=()=>{noteSseActivity()};es.onerror=()=>{markConn(false);if(es){es.close();es=null}scheduleReconnect()};es.addEventListener('ping',()=>{noteSseActivity()});es.onmessage=()=>{noteSseActivity()}}connectEvents();window.addEventListener('pagehide',()=>{if(es)es.close()});setInterval(()=>{const now=Date.now();const activeLink=lastSseActivity&&now-lastSseActivity<2500;markConn(!!activeLink);if(!activeLink&&now-lastConnectAttempt>=2500&&!reconnectTimer)forceReconnect()},1000);";
+}
+
+static void resolve_gpios();
+static void configure_inputs();
+static void apply_all_outputs();
+static void broadcast_state();
+static std::vector<std::string> json_string_list(const std::string &body, const char *name, size_t maxlen);
+static std::vector<bool> json_bool_list(const std::string &body, const char *name);
+static std::vector<int> json_int_list(const std::string &body, const char *name);
+static uint32_t json_uint_value(const std::string &body, const char *name, uint32_t fallback);
+
+// JSON-Daten der zuweisbaren Relais-Eingaenge (nur aktive/gueltige Relais).
+static std::string relais_options_json() {
+  std::string out = "[";
+  bool first = true;
+  for (uint8_t r = 0; r < cfg::MAX_RELAIS; ++r) {
+    const Relais &rl = relais[r];
+    if (!rl.enabled || !rl.valid) continue;
+    if (!first) out += ',';
+    first = false;
+    out += "{\"i\":" + std::to_string(r) + ",\"name\":\"" + json_escape(rl.name) + "\",\"n\":" + std::to_string(outputs_count(rl)) + "}";
+  }
+  out += "]";
+  return out;
+}
+
+// Ausgaenge-Seite: legt die 1-8 Buttons fest (Aktiv, Name, zugewiesener Relais-Eingang).
 static std::string build_config_html(const Session *session) {
-#ifdef INPUT_MODE_BUTTON
-  const char *time_label = "Taster-Entprellzeit";
-  const char *led_css = ".tinfo{color:#9e9e9e;white-space:nowrap}.tled{width:14px;height:14px;border-radius:50%;background:#444;border:1px solid #222;flex:none}.tled.on{background:#51cf66;box-shadow:0 0 6px #51cf66}";
-  const char *led_js = "function refreshLeds(){fetch('/state').then(r=>r.json()).then(d=>{if(!d.buttons)return;document.querySelectorAll('.tled').forEach(e=>{e.classList.toggle('on',!!d.buttons[+e.dataset.led])})}).catch(()=>{})}setInterval(refreshLeds,400);refreshLeds();";
-#else
-  const char *time_label = "Rueckmeldezeit";
-  const char *led_css = "";
-  const char *led_js = "";
-#endif
-  const std::string time_min = std::to_string(cfg::MIN_INPUT_TIME_MS);
-  const std::string time_max = std::to_string(cfg::MAX_INPUT_TIME_MS);
-  const std::string time_def = std::to_string(cfg::DEFAULT_INPUT_TIME_MS);
+  std::string btnData = "[";
+  for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
+    if (b) btnData += ',';
+    const Button &bt = buttons[b];
+    btnData += "{\"en\":" + std::string(bt.enabled ? "true" : "false") + ",\"name\":\"" + json_escape(bt.name) +
+               "\",\"rel\":" + std::to_string(bt.relais_idx) + ",\"in\":" + std::to_string(bt.input_idx) + "}";
+  }
+  btnData += "]";
+  std::string html = "<!DOCTYPE html><html lang=\"de\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + html_escape(site_title) + " - Ausgaenge</title><style>html,body{margin:0}body{box-sizing:border-box;font-family:'Segoe UI',sans-serif;background:#121212;color:#e0e0e0;min-height:100vh;padding:108px 24px 24px}" + page_header_css() + "h1{color:#4dabf7}.card{background:#1e1e1e;padding:24px;max-width:980px;border:1px solid #2d2d2d}.row{display:flex;gap:12px;margin-bottom:12px;align-items:center}.row>label:first-child{width:160px;color:#9e9e9e;white-space:nowrap}.row>input{flex:1;min-width:180px;background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:8px}.brow{display:flex;flex-wrap:wrap;gap:10px;align-items:center;border-top:1px solid #2d2d2d;padding-top:10px;margin-bottom:6px}.brow .bn{flex:none;width:80px;color:#9e9e9e}.brow .checklbl{flex:none;display:flex;align-items:center;gap:4px;color:#9e9e9e}.brow input[type=text]{flex:0 1 auto;min-width:120px;background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:8px}.brow select{background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:8px;min-width:200px}.actions button{margin:0}button{padding:10px 14px;margin:4px;background:#1a3a5c;color:#4dabf7;border:1px solid #1e5a9e;font-weight:700}.save{background:#1b4332;color:#51cf66;border-color:#2d6a4f}.danger{background:#3d1515;color:#ff6b6b;border-color:#7a2020}.ok{color:#51cf66}.err{color:#ff6b6b}</style></head><body>" + page_header_html(session, true) + "<h1>Ausgaenge / Buttons</h1>" + page_nav_actions() + "<div id=\"msg\"></div><div class=\"card\"><div class=\"row\"><label>Titel</label><input id=\"title\" maxlength=\"64\" value=\"" + html_escape(site_title) + "\"></div><div class=\"row\"><label>Ueberschrift</label><input id=\"subtitle\" maxlength=\"64\" value=\"" + html_escape(site_subtitle) + "\"></div><div class=\"row\"><label>Oeffentlich</label><input type=\"checkbox\" id=\"pub\" style=\"flex:none;width:auto;padding:0;margin:0;border:none;background:none\" " + std::string(public_access ? "checked" : "") + "></div><div id=\"btns\"></div></div><script>const relData=" + relais_options_json() + ";const btnData=" + btnData + ";const msg=document.getElementById('msg');" + std::string(sse_conn_script()) +
+    "function optLabel(r,k){const base='Relais '+(r.i+1)+(r.name?' ('+r.name+')':'');return r.n>1?base+' \\u2013 Ausgang '+(k+1):base}"
+    "function buildSelect(b){let s='<select data-b=\"'+b+'\"><option value=\"-1_0\">\\u2013 keine \\u2013</option>';relData.forEach(r=>{for(let k=0;k<r.n;k++){const v=r.i+'_'+k;const sel=(btnData[b].rel===r.i&&btnData[b].in===k)?' selected':'';s+='<option value=\"'+v+'\"'+sel+'>'+optLabel(r,k)+'</option>'}});return s+'</select>'}"
+    "const wrap=document.getElementById('btns');let h='';for(let b=0;b<" + std::to_string(cfg::MAX_BUTTONS) + ";b++){h+='<div class=\"brow\"><span class=\"bn\">Button '+(b+1)+'</span><label class=\"checklbl\"><input type=\"checkbox\" data-en=\"'+b+'\"'+(btnData[b].en?' checked':'')+'> aktiv</label><input type=\"text\" maxlength=\"32\" data-name=\"'+b+'\" placeholder=\"Name\" value=\"\">'+buildSelect(b)+'</div>'}wrap.innerHTML=h;for(let b=0;b<" + std::to_string(cfg::MAX_BUTTONS) + ";b++){document.querySelector('input[data-name=\"'+b+'\"]').value=btnData[b].name}"
+    "function save(){const en=[],names=[],rel=[],inp=[];for(let b=0;b<" + std::to_string(cfg::MAX_BUTTONS) + ";b++){en.push(document.querySelector('input[data-en=\"'+b+'\"]').checked);names.push(document.querySelector('input[data-name=\"'+b+'\"]').value.trim());const v=document.querySelector('select[data-b=\"'+b+'\"]').value.split('_');rel.push(+v[0]);inp.push(+v[1])}fetch('/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({btn_enabled:en,btn_names:names,btn_relais:rel,btn_input:inp,title:document.getElementById('title').value,subtitle:document.getElementById('subtitle').value,public:document.getElementById('pub').checked})}).then(r=>r.json()).then(()=>{msg.textContent='OK gespeichert';msg.className='ok';setTimeout(()=>{msg.textContent='';msg.className=''},2000);const nt=document.getElementById('title').value.trim();if(nt){const st=document.getElementById('sitetitle');if(st)st.textContent=nt;document.title=nt+' - Ausgaenge'}}).catch(()=>{msg.textContent='Fehler';msg.className='err'})}"
+    "</script></body></html>";
+  return html;
+}
+
+// Relais-Seite: definiert die 1-8 Relais (Typ, Name, Impuls, je Ausgang GPIO + Eingangsrolle).
+static std::string build_relais_html(const Session *session) {
   const std::string imp_min = std::to_string(cfg::MIN_IMPULSE_MS);
   const std::string imp_max = std::to_string(cfg::MAX_IMPULSE_MS);
-  std::string rows;
-  for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) {
-    const std::string index = std::to_string(i);
-#ifdef INPUT_MODE_BUTTON
-    rows += "<div class=\"row relay-config\"><label>Ausgang " + std::to_string(i + 1) + " (GP" + std::to_string(cfg::RELAY_PINS[i]) + ")</label><input maxlength=\"32\" value=\"" + html_escape(relay_names[i]) + "\" data-idx=\"" + index + "\"><label class=\"checklbl\" title=\"Relaisausgang LOW-aktiv\"><input type=\"checkbox\" data-low=\"" + index + "\"" + std::string(relay_active_low[i] ? " checked" : "") + "> Low aktiv</label><label class=\"checklbl\" title=\"Ausgang gepulst statt statisch\"><input type=\"checkbox\" data-imp=\"" + index + "\"" + std::string(relay_impulse[i] ? " checked" : "") + "> Impuls</label><input class=\"number-input\" type=\"number\" min=\"" + imp_min + "\" max=\"" + imp_max + "\" value=\"" + std::to_string(relay_impulse_ms[i]) + "\" data-impms=\"" + index + "\" title=\"Impulszeit in ms\"><span>ms</span><span class=\"tinfo\">Taster GP" + std::to_string(cfg::FEEDBACK_PINS[i]) + "</span><span class=\"tled\" data-led=\"" + index + "\" title=\"Tasterzustand\"></span></div>";
-#else
-    rows += "<div class=\"row relay-config\"><label>Ausgang " + std::to_string(i + 1) + " (GP" + std::to_string(cfg::RELAY_PINS[i]) + ")</label><input maxlength=\"32\" value=\"" + html_escape(relay_names[i]) + "\" data-idx=\"" + index + "\"><label class=\"checklbl\" title=\"Relaisausgang LOW-aktiv\"><input type=\"checkbox\" data-low=\"" + index + "\"" + std::string(relay_active_low[i] ? " checked" : "") + "> Low aktiv</label><label class=\"checklbl\" title=\"Ausgang gepulst statt statisch\"><input type=\"checkbox\" data-imp=\"" + index + "\"" + std::string(relay_impulse[i] ? " checked" : "") + "> Impuls</label><input class=\"number-input\" type=\"number\" min=\"" + imp_min + "\" max=\"" + imp_max + "\" value=\"" + std::to_string(relay_impulse_ms[i]) + "\" data-impms=\"" + index + "\" title=\"Impulszeit in ms\"><span>ms</span><label class=\"checklbl\" title=\"Physische Rueckmeldung ueber GP" + std::to_string(cfg::FEEDBACK_PINS[i]) + " pruefen\"><input type=\"checkbox\" data-fb=\"" + index + "\"" + std::string(feedback_enabled[i] ? " checked" : "") + "> Rueckmeldung GP" + std::to_string(cfg::FEEDBACK_PINS[i]) + "</label><label class=\"checklbl\" title=\"Rueckmeldepegel fuer EIN ist LOW\"><input type=\"checkbox\" data-fblow=\"" + index + "\"" + std::string(feedback_active_low[i] ? " checked" : "") + "> Rueckm. LOW</label></div>";
-#endif
+  std::string outPins = "[";
+  for (size_t i = 0; i < cfg::OUTPUT_PINS.size(); ++i) { if (i) outPins += ','; outPins += std::to_string(cfg::OUTPUT_PINS[i]); }
+  outPins += "]";
+  std::string inPins = "[";
+  for (size_t i = 0; i < cfg::INPUT_PINS.size(); ++i) { if (i) inPins += ','; inPins += std::to_string(cfg::INPUT_PINS[i]); }
+  inPins += "]";
+  std::string relData = "[";
+  for (uint8_t r = 0; r < cfg::MAX_RELAIS; ++r) {
+    if (r) relData += ',';
+    const Relais &rl = relais[r];
+    relData += "{\"en\":" + std::string(rl.enabled ? "true" : "false") + ",\"type\":" + std::to_string(static_cast<int>(rl.type)) +
+               ",\"name\":\"" + json_escape(rl.name) + "\",\"low\":" + std::string(rl.active_low ? "true" : "false") +
+               ",\"imp\":" + std::string(rl.impulse ? "true" : "false") + ",\"impms\":" + std::to_string(rl.impulse_ms) + ",\"out\":[";
+    for (uint8_t k = 0; k < cfg::MAX_OUTPUTS; ++k) { if (k) relData += ','; relData += std::to_string(rl.out_gpio[k]); }
+    relData += "],\"role\":[";
+    for (uint8_t k = 0; k < cfg::MAX_OUTPUTS; ++k) { if (k) relData += ','; relData += std::to_string(rl.in_role[k]); }
+    relData += "],\"rlow\":[";
+    for (uint8_t k = 0; k < cfg::MAX_OUTPUTS; ++k) { if (k) relData += ','; relData += (rl.in_active_low[k] ? "true" : "false"); }
+    relData += "]}";
   }
-  std::string html = "<!DOCTYPE html><html lang=\"de\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + html_escape(site_title) + " - Konfiguration</title><style>html,body{margin:0}body{box-sizing:border-box;font-family:'Segoe UI',sans-serif;background:#121212;color:#e0e0e0;min-height:100vh;padding:108px 24px 24px}" + page_header_css() + "h1{color:#4dabf7}.card{background:#1e1e1e;padding:24px;max-width:980px;border:1px solid #2d2d2d}.row{display:flex;gap:12px;margin-bottom:12px;align-items:center}.row>label:first-child{width:160px;color:#9e9e9e;white-space:nowrap}.row>input{flex:1;min-width:180px;background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:8px}.row .checklbl{flex:none;width:auto;display:flex;align-items:center;gap:4px;color:#9e9e9e;white-space:nowrap}.row .checklbl input{width:auto;margin:0}.relay-config{flex-wrap:wrap;border-top:1px solid #2d2d2d;padding-top:10px}.relay-config>input{flex:0 1 auto;min-width:90px;max-width:50%}.number-input{max-width:160px}" + std::string(led_css) + ".actions button{margin:0}button{padding:10px 14px;margin:4px;background:#1a3a5c;color:#4dabf7;border:1px solid #1e5a9e;font-weight:700}.save{background:#1b4332;color:#51cf66;border-color:#2d6a4f}.danger{background:#3d1515;color:#ff6b6b;border-color:#7a2020}.ok{color:#51cf66}.err{color:#ff6b6b}</style></head><body>" + page_header_html(session, true) + "<h1>Konfiguration</h1><div class=\"actions\"><button onclick=\"location.href='/'\">Zurueck</button><button class=\"save\" onclick=\"save()\">Speichern</button><button onclick=\"location.href='/admin'\">Benutzer/API</button><button onclick=\"location.href='/network'\">Network</button><button onclick=\"location.href='/scenes'\">Szenen</button><button class=\"danger\" onclick=\"location.href='/logout'\">Abmelden</button></div><div id=\"msg\"></div><div class=\"card\"><div class=\"row\"><label>Titel</label><input id=\"title\" maxlength=\"64\" value=\"" + html_escape(site_title) + "\"></div><div class=\"row\"><label>Ueberschrift</label><input id=\"subtitle\" maxlength=\"64\" value=\"" + html_escape(site_subtitle) + "\"></div><div class=\"row\"><label>Oeffentlich</label><input type=\"checkbox\" id=\"pub\" style=\"flex:none;width:auto;padding:0;margin:0;border:none;background:none\" " + std::string(public_access ? "checked" : "") + "></div><div class=\"row\"><label>" + std::string(time_label) + "</label><input class=\"number-input\" type=\"number\" id=\"fbtimeout\" min=\"" + time_min + "\" max=\"" + time_max + "\" value=\"" + std::to_string(feedback_timeout_ms) + "\"><span>ms</span></div>" + rows + "</div><script>const conn=document.getElementById('conn');const msg=document.getElementById('msg');let lastSseActivity=0;let lastConnectAttempt=0;let es=null;let reconnectTimer=0;function markConn(ok){conn.textContent=ok?'Verbunden':'Getrennt';conn.className=ok?'ok':'err'}function noteSseActivity(){lastSseActivity=Date.now();markConn(true)}function scheduleReconnect(delay=1000){if(reconnectTimer)return;reconnectTimer=setTimeout(()=>{reconnectTimer=0;connectEvents()},delay)}function forceReconnect(){if(es){es.close();es=null}scheduleReconnect(0)}function connectEvents(){if(es)es.close();lastConnectAttempt=Date.now();es=new EventSource('/events');es.onopen=()=>{noteSseActivity()};es.onerror=()=>{markConn(false);if(es){es.close();es=null}scheduleReconnect()};es.addEventListener('ping',()=>{noteSseActivity()});es.onmessage=()=>{noteSseActivity()}}connectEvents();window.addEventListener('pagehide',()=>{if(es)es.close()});setInterval(()=>{const now=Date.now();const activeLink=lastSseActivity&&now-lastSseActivity<2500;markConn(!!activeLink);if(!activeLink&&now-lastConnectAttempt>=2500&&!reconnectTimer)forceReconnect()},1000);function save(){const names=[...document.querySelectorAll('input[data-idx]')].map((e,i)=>e.value.trim()||('Relais '+(i+1)));const bools=a=>[...document.querySelectorAll(a)].map(e=>e.checked);const timeout=Math.max(" + time_min + ",Math.min(" + time_max + ",Number(document.getElementById('fbtimeout').value)||" + time_def + "));fetch('/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({names,act_low:bools('input[data-low]'),impulse:bools('input[data-imp]'),impulse_ms:[...document.querySelectorAll('input[data-impms]')].map(e=>Math.max(100,Math.min(2000,Number(e.value)||300))),feedback_enabled:bools('input[data-fb]'),feedback_low:bools('input[data-fblow]'),feedback_timeout:timeout,title:document.getElementById('title').value,subtitle:document.getElementById('subtitle').value,public:document.getElementById('pub').checked})}).then(r=>r.json()).then(()=>{msg.textContent='OK gespeichert';msg.className='ok';setTimeout(()=>{msg.textContent='';msg.className=''},2000);const nt=document.getElementById('title').value.trim();if(nt){const st=document.getElementById('sitetitle');if(st)st.textContent=nt;document.title=nt+' - Konfiguration'}}).catch(()=>{msg.textContent='Fehler';msg.className='err'})}" + std::string(led_js) + "</script></body></html>";
+  relData += "]";
+  const std::string tmin = std::to_string(cfg::MIN_FEEDBACK_TIMEOUT_MS);
+  const std::string tmax = std::to_string(cfg::MAX_FEEDBACK_TIMEOUT_MS);
+  const std::string dmin = std::to_string(cfg::MIN_DEBOUNCE_MS);
+  const std::string dmax = std::to_string(cfg::MAX_DEBOUNCE_MS);
+  std::string html = "<!DOCTYPE html><html lang=\"de\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + html_escape(site_title) + " - Relais</title><style>html,body{margin:0}body{box-sizing:border-box;font-family:'Segoe UI',sans-serif;background:#121212;color:#e0e0e0;min-height:100vh;padding:108px 24px 24px}" + page_header_css() + "h1{color:#4dabf7}.card{background:#1e1e1e;padding:20px;max-width:1040px;border:1px solid #2d2d2d}.row{display:flex;gap:12px;margin-bottom:12px;align-items:center}.row>label:first-child{width:180px;color:#9e9e9e;white-space:nowrap}.number-input{max-width:120px;background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:8px}.rel{border-top:1px solid #2d2d2d;padding:10px 0}.rel.collapsed .outs{display:none}.caret{flex:none;background:none;border:0;color:#4dabf7;font-size:1rem;cursor:pointer;padding:0 6px;margin:0;line-height:1}.rhead{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.rhead .rn{flex:none;width:70px;color:#4dabf7;font-weight:700}.rhead input[type=text]{flex:0 1 auto;min-width:120px;background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:8px}.checklbl{display:flex;align-items:center;gap:4px;color:#9e9e9e;white-space:nowrap}select{background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:7px}.outs{margin:8px 0 0 70px}.orow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:6px;color:#9e9e9e}.orow .ol{flex:none;width:80px}.inpin{font-family:monospace;color:#8bd5ff;min-width:64px}.actions button{margin:0}button{padding:10px 14px;margin:4px;background:#1a3a5c;color:#4dabf7;border:1px solid #1e5a9e;font-weight:700}.save{background:#1b4332;color:#51cf66;border-color:#2d6a4f}.danger{background:#3d1515;color:#ff6b6b;border-color:#7a2020}.ok{color:#51cf66}.err{color:#ff6b6b}</style></head><body>" + page_header_html(session, true) + "<h1>Relais</h1>" + page_nav_actions() + "<div id=\"msg\"></div><div class=\"card\"><div class=\"row\"><label>Rueckmeldezeit</label><input class=\"number-input\" type=\"number\" id=\"fbtimeout\" min=\"" + tmin + "\" max=\"" + tmax + "\" value=\"" + std::to_string(feedback_timeout_ms) + "\"><span>ms</span></div><div class=\"row\"><label>Taster-Entprellzeit</label><input class=\"number-input\" type=\"number\" id=\"debounce\" min=\"" + dmin + "\" max=\"" + dmax + "\" value=\"" + std::to_string(taster_debounce_ms) + "\"><span>ms</span></div><div id=\"rels\"></div></div><script>const relData=" + relData + ";const OUT=" + outPins + ";const IN=" + inPins + ";const IMPMIN=" + imp_min + ",IMPMAX=" + imp_max + ";const msg=document.getElementById('msg');" + std::string(sse_conn_script()) +
+    "function inFor(g){const i=OUT.indexOf(+g);return i<0?'-':('GP'+IN[i])}"
+    "function outSelect(r,k){let s='<select class=\"osel\" data-r=\"'+r+'\" data-k=\"'+k+'\" onchange=\"upd()\"><option value=\"-1\">\\u2013</option>';OUT.forEach(p=>{const sel=(relData[r].out[k]===p)?' selected':'';s+='<option value=\"'+p+'\"'+sel+'>GP'+p+'</option>'});return s+'</select>'}"
+    "function roleSelect(r,k){const cur=relData[r].role[k];let s='<select class=\"rsel\" data-r=\"'+r+'\" data-k=\"'+k+'\"><option value=\"0\"'+(cur===0?' selected':'')+'>keine</option><option value=\"1\"'+(cur===1?' selected':'')+'>Rueckmeldung</option><option value=\"2\"'+(cur===2?' selected':'')+'>Taster</option></select>';return s}"
+    "let collapsed=Array(" + std::to_string(cfg::MAX_RELAIS) + ").fill(true);"
+    "function toggleRel(r){collapsed[r]=!collapsed[r];upd()}"
+    "function render(){let h='';for(let r=0;r<" + std::to_string(cfg::MAX_RELAIS) + ";r++){const d=relData[r];const n=d.type===1?4:(d.type===2?2:1);h+='<div class=\"rel'+(collapsed[r]?' collapsed':'')+'\"><div class=\"rhead\"><button type=\"button\" class=\"caret\" onclick=\"toggleRel('+r+')\">'+(collapsed[r]?'\\u25B8':'\\u25BE')+'</button><span class=\"rn\">Relais '+(r+1)+'</span>'+'<label class=\"checklbl\"><input type=\"checkbox\" class=\"ren\" data-r=\"'+r+'\"'+(d.en?' checked':'')+'> aktiv</label>'+'<input type=\"text\" maxlength=\"32\" class=\"rname\" data-r=\"'+r+'\" placeholder=\"Name\">'+'<select class=\"rtype\" data-r=\"'+r+'\" onchange=\"upd()\"><option value=\"0\"'+(d.type===0?' selected':'')+'>einfach</option><option value=\"2\"'+(d.type===2?' selected':'')+'>2-fach</option><option value=\"1\"'+(d.type===1?' selected':'')+'>4-fach</option></select>'+'<label class=\"checklbl\"><input type=\"checkbox\" class=\"rlow\" data-r=\"'+r+'\"'+(d.low?' checked':'')+'> Low aktiv</label>'+'<label class=\"checklbl\"><input type=\"checkbox\" class=\"rimp\" data-r=\"'+r+'\"'+(d.imp?' checked':'')+'> Impuls</label>'+'<input class=\"number-input rimpms\" data-r=\"'+r+'\" type=\"number\" min=\"'+IMPMIN+'\" max=\"'+IMPMAX+'\" value=\"'+d.impms+'\"><span>ms</span></div><div class=\"outs\">';for(let k=0;k<n;k++){h+='<div class=\"orow\"><span class=\"ol\">Ausgang '+(k+1)+'</span>'+outSelect(r,k)+'<span>Eingang</span><span class=\"inpin\" id=\"in'+r+'_'+k+'\">'+inFor(d.out[k])+'</span>'+roleSelect(r,k)+'<label class=\"checklbl\"><input type=\"checkbox\" class=\"rrlow\" data-r=\"'+r+'\" data-k=\"'+k+'\"'+(d.rlow[k]?' checked':'')+'> LOW</label></div>'}h+='</div></div>'}document.getElementById('rels').innerHTML=h;for(let r=0;r<" + std::to_string(cfg::MAX_RELAIS) + ";r++)document.querySelector('input.rname[data-r=\"'+r+'\"]').value=relData[r].name}"
+    "function upd(){for(let r=0;r<" + std::to_string(cfg::MAX_RELAIS) + ";r++){relData[r].type=+document.querySelector('select.rtype[data-r=\"'+r+'\"]').value;relData[r].name=document.querySelector('input.rname[data-r=\"'+r+'\"]').value;relData[r].en=document.querySelector('input.ren[data-r=\"'+r+'\"]').checked;relData[r].low=document.querySelector('input.rlow[data-r=\"'+r+'\"]').checked;relData[r].imp=document.querySelector('input.rimp[data-r=\"'+r+'\"]').checked;relData[r].impms=+document.querySelector('input.rimpms[data-r=\"'+r+'\"]').value}document.querySelectorAll('select.osel').forEach(s=>{relData[+s.dataset.r].out[+s.dataset.k]=+s.value});document.querySelectorAll('select.rsel').forEach(s=>{relData[+s.dataset.r].role[+s.dataset.k]=+s.value});document.querySelectorAll('input.rrlow').forEach(c=>{relData[+c.dataset.r].rlow[+c.dataset.k]=c.checked});render()}"
+    "render();"
+    "function save(){upd();const en=[],type=[],names=[],low=[],imp=[],impms=[],out=[],role=[],rlow=[];for(let r=0;r<" + std::to_string(cfg::MAX_RELAIS) + ";r++){const d=relData[r];en.push(d.en);type.push(d.type);names.push((d.name||'').trim());low.push(d.low);imp.push(d.imp);impms.push(Math.max(IMPMIN,Math.min(IMPMAX,+d.impms||300)));for(let k=0;k<4;k++){out.push(d.out[k]);role.push(d.role[k]);rlow.push(d.rlow[k])}}const ft=Math.max(" + tmin + ",Math.min(" + tmax + ",+document.getElementById('fbtimeout').value||500));const db=Math.max(" + dmin + ",Math.min(" + dmax + ",+document.getElementById('debounce').value||25));fetch('/relais',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({r_enabled:en,r_type:type,r_names:names,r_low:low,r_imp:imp,r_impms:impms,r_out:out,r_role:role,r_rlow:rlow,feedback_timeout:ft,taster_debounce:db})}).then(r=>r.json()).then(d=>{msg.textContent=d.ok?'Gespeichert':'Fehler';msg.className=d.ok?'ok':'err';if(d.ok)setTimeout(()=>location.reload(),700)}).catch(()=>{msg.textContent='Fehler';msg.className='err'})}"
+    "</script></body></html>";
   return html;
+}
+
+// Relais-Seite POST: uebernimmt Relaisdefinitionen, loest GPIOs auf und wendet sie an.
+static void handle_relais_post(uint8_t sn, const HttpRequest &req) {
+  {
+    StateLock lock;
+    const std::vector<bool> en = json_bool_list(req.body, "r_enabled");
+    const std::vector<int> type = json_int_list(req.body, "r_type");
+    const std::vector<std::string> names = json_string_list(req.body, "r_names", 32);
+    const std::vector<bool> low = json_bool_list(req.body, "r_low");
+    const std::vector<bool> imp = json_bool_list(req.body, "r_imp");
+    const std::vector<int> impms = json_int_list(req.body, "r_impms");
+    const std::vector<int> out = json_int_list(req.body, "r_out");    // flach r*4+k
+    const std::vector<int> role = json_int_list(req.body, "r_role");  // flach r*4+k
+    const std::vector<bool> rlow = json_bool_list(req.body, "r_rlow"); // flach r*4+k
+    for (uint8_t r = 0; r < cfg::MAX_RELAIS; ++r) {
+      Relais &rl = relais[r];
+      if (r < en.size()) rl.enabled = en[r];
+      if (r < type.size()) rl.type = (type[r] == 1) ? RelayType::Quad : (type[r] == 2) ? RelayType::Dual : RelayType::Simple;
+      if (r < names.size()) rl.name = names[r];
+      if (r < low.size()) rl.active_low = low[r];
+      if (r < imp.size()) rl.impulse = imp[r];
+      if (r < impms.size()) rl.impulse_ms = std::clamp<uint16_t>(static_cast<uint16_t>(impms[r]), cfg::MIN_IMPULSE_MS, cfg::MAX_IMPULSE_MS);
+      for (uint8_t k = 0; k < cfg::MAX_OUTPUTS; ++k) {
+        const size_t idx = static_cast<size_t>(r) * cfg::MAX_OUTPUTS + k;
+        if (idx < out.size()) rl.out_gpio[k] = (output_pool_index(out[idx]) >= 0) ? static_cast<int8_t>(out[idx]) : -1;
+        if (idx < role.size()) rl.in_role[k] = (role[idx] >= 0 && role[idx] <= 2) ? static_cast<uint8_t>(role[idx]) : 0;
+        if (idx < rlow.size()) rl.in_active_low[k] = rlow[idx];
+      }
+      if (rl.active_output > outputs_count(rl)) rl.active_output = 0;
+    }
+    feedback_timeout_ms = std::clamp<uint32_t>(json_uint_value(req.body, "feedback_timeout", feedback_timeout_ms),
+                                               cfg::MIN_FEEDBACK_TIMEOUT_MS, cfg::MAX_FEEDBACK_TIMEOUT_MS);
+    taster_debounce_ms = std::clamp<uint32_t>(json_uint_value(req.body, "taster_debounce", taster_debounce_ms),
+                                              cfg::MIN_DEBOUNCE_MS, cfg::MAX_DEBOUNCE_MS);
+    resolve_gpios();
+    apply_all_outputs();
+    configure_inputs();
+  }
+  save_config();
+  broadcast_state();
+  esp_link_display_dirty = true;
+  send_response(sn, "200 OK", "application/json", "{\"ok\":true}");
 }
 
 static std::string build_network_html(const Session *session) {
@@ -1784,60 +1683,69 @@ static bool json_bool_value(const std::string &body, const std::string &key, boo
   return fallback;
 }
 
-static void update_names_from_json(const std::string &body) {
-  size_t pos = body.find("\"names\"");
-  if (pos == std::string::npos) return;
-  pos = body.find('[', pos);
-  if (pos == std::string::npos) return;
-  for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) {
-    pos = body.find('"', pos);
-    if (pos == std::string::npos) return;
-    size_t end = body.find('"', pos + 1);
-    if (end == std::string::npos) return;
-    relay_names[i] = body.substr(pos + 1, std::min<size_t>(32, end - pos - 1));
-    pos = end + 1;
-  }
+// Extrahiert den Inhalt eines JSON-Arrays "key":[ ... ] (ohne Klammern).
+static bool json_array_body(const std::string &body, const char *name, std::string &out) {
+  size_t key = body.find(std::string("\"") + name + "\"");
+  if (key == std::string::npos) return false;
+  size_t start = body.find('[', key);
+  if (start == std::string::npos) return false;
+  size_t end = body.find(']', start);
+  if (end == std::string::npos) return false;
+  out = body.substr(start + 1, end - start - 1);
+  return true;
 }
 
-// Liest das "act_low"-Boolean-Array (je Kanal true=LOW-aktiv) aus dem JSON-Body.
-static void update_bool_array_from_json(const std::string &body, const char *name,
-                                        std::array<bool, cfg::RELAY_COUNT> &values) {
-  size_t key = body.find(std::string("\"") + name + "\"");
-  if (key == std::string::npos) return;
-  size_t start = body.find('[', key);
-  if (start == std::string::npos) return;
-  size_t end = body.find(']', start);
-  if (end == std::string::npos) return;
-  const std::string arr = body.substr(start + 1, end - start - 1);
+// Liest ein String-Array "key":["a","b",...] in eine Liste (je Element auf maxlen begrenzt).
+static std::vector<std::string> json_string_list(const std::string &body, const char *name, size_t maxlen) {
+  std::vector<std::string> out;
+  std::string arr;
+  if (!json_array_body(body, name, arr)) return out;
   size_t p = 0;
-  for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) {
+  while (true) {
+    size_t q = arr.find('"', p);
+    if (q == std::string::npos) break;
+    size_t e = arr.find('"', q + 1);
+    if (e == std::string::npos) break;
+    out.push_back(arr.substr(q + 1, std::min<size_t>(maxlen, e - q - 1)));
+    p = e + 1;
+  }
+  return out;
+}
+
+// Liest ein Boolean-Array "key":[true,false,...] in eine Liste.
+static std::vector<bool> json_bool_list(const std::string &body, const char *name) {
+  std::vector<bool> out;
+  std::string arr;
+  if (!json_array_body(body, name, arr)) return out;
+  size_t p = 0;
+  while (p < arr.size()) {
     size_t comma = arr.find(',', p);
     const std::string tok = arr.substr(p, comma == std::string::npos ? std::string::npos : comma - p);
-    values[i] = tok.find("true") != std::string::npos;
+    if (tok.find_first_not_of(" \t\r\n") != std::string::npos)
+      out.push_back(tok.find("true") != std::string::npos);
     if (comma == std::string::npos) break;
     p = comma + 1;
   }
+  return out;
 }
 
-// Liest ein Uint-Array (je Kanal) aus dem JSON-Body und begrenzt es auf [lo,hi].
-static void update_uint16_array_from_json(const std::string &body, const char *name,
-                                          std::array<uint16_t, cfg::RELAY_COUNT> &values,
-                                          uint16_t lo, uint16_t hi) {
-  size_t key = body.find(std::string("\"") + name + "\"");
-  if (key == std::string::npos) return;
-  size_t start = body.find('[', key);
-  if (start == std::string::npos) return;
-  size_t end = body.find(']', start);
-  if (end == std::string::npos) return;
-  const std::string arr = body.substr(start + 1, end - start - 1);
+// Liest ein Integer-Array "key":[1,-1,2,...] in eine Liste (signed).
+static std::vector<int> json_int_list(const std::string &body, const char *name) {
+  std::vector<int> out;
+  std::string arr;
+  if (!json_array_body(body, name, arr)) return out;
   size_t p = 0;
-  for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) {
-    while (p < arr.size() && !std::isdigit(static_cast<unsigned char>(arr[p]))) ++p;
+  while (p < arr.size()) {
+    while (p < arr.size() && arr[p] != '-' && !std::isdigit(static_cast<unsigned char>(arr[p]))) ++p;
     if (p >= arr.size()) break;
-    uint32_t v = 0;
-    while (p < arr.size() && std::isdigit(static_cast<unsigned char>(arr[p]))) v = v * 10 + static_cast<uint32_t>(arr[p++] - '0');
-    values[i] = std::clamp<uint16_t>(static_cast<uint16_t>(std::min<uint32_t>(v, 65535u)), lo, hi);
+    bool neg = false;
+    if (arr[p] == '-') { neg = true; ++p; }
+    if (p >= arr.size() || !std::isdigit(static_cast<unsigned char>(arr[p]))) break;
+    int v = 0;
+    while (p < arr.size() && std::isdigit(static_cast<unsigned char>(arr[p]))) v = v * 10 + (arr[p++] - '0');
+    out.push_back(neg ? -v : v);
   }
+  return out;
 }
 
 static uint32_t json_uint_value(const std::string &body, const char *name, uint32_t fallback) {
@@ -1852,24 +1760,78 @@ static uint32_t json_uint_value(const std::string &body, const char *name, uint3
   return value;
 }
 
-static void configure_feedback_inputs() {
-  for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) {
-    gpio_init(cfg::FEEDBACK_PINS[i]);
-    gpio_set_dir(cfg::FEEDBACK_PINS[i], GPIO_IN);
-#ifdef INPUT_MODE_BUTTON
-    gpio_pull_up(cfg::FEEDBACK_PINS[i]);  // Taster schalten gegen GND
-    button_pressed[i] = false;
-    button_raw[i] = false;
-    button_since[i] = millis32();
-#else
-    if (feedback_active_low[i]) gpio_pull_up(cfg::FEEDBACK_PINS[i]);
-    else gpio_pull_down(cfg::FEEDBACK_PINS[i]);
-#endif
-    feedback_pending[i] = false;
-    feedback_error[i] = false;
-    feedback_source_scene[i] = -1;
+// Leitet je aktivem Relais-Ausgang den Eingangs-GPIO aus dem gewaehlten Ausgangs-GPIO
+// ab und validiert (kein Ausgangs-Pin doppelt belegt). Ungueltige Relais bleiben aus.
+static void resolve_gpios() {
+  std::array<bool, 8> out_used{};  // Pool-Index belegt?
+  for (uint8_t r = 0; r < cfg::MAX_RELAIS; ++r) {
+    Relais &rl = relais[r];
+    for (uint8_t k = 0; k < cfg::MAX_OUTPUTS; ++k) rl.in_gpio[k] = -1;
+    rl.valid = false;
+    if (!rl.enabled) continue;
+    const uint8_t n = outputs_count(rl);
+    bool ok = true;
+    for (uint8_t k = 0; k < n && ok; ++k) {
+      const int oi = output_pool_index(rl.out_gpio[k]);
+      if (oi < 0 || out_used[oi]) ok = false;
+    }
+    if (!ok) { printf("Relais %u: GPIO-Konflikt/ungueltig, deaktiviert.\n", r + 1); continue; }
+    for (uint8_t k = 0; k < n; ++k) {
+      const int oi = output_pool_index(rl.out_gpio[k]);
+      out_used[oi] = true;
+      rl.in_gpio[k] = static_cast<int8_t>(cfg::INPUT_PINS[oi]);
+    }
+    rl.valid = true;
+  }
+}
+
+// Konfiguriert die Eingangs-GPIOs je nach Rolle (Rueckmeldung/Taster) und setzt
+// die Laufzeitzustaende zurueck. Alle Pool-Eingaenge werden vorab als Input mit
+// Pull-up initialisiert (unbenutzte bleiben so definiert).
+static void configure_inputs() {
+  for (uint8_t pin : cfg::INPUT_PINS) {
+    gpio_init(pin);
+    gpio_set_dir(pin, GPIO_IN);
+    gpio_pull_up(pin);
+  }
+  for (uint8_t r = 0; r < cfg::MAX_RELAIS; ++r) {
+    Relais &rl = relais[r];
+    for (uint8_t k = 0; k < cfg::MAX_OUTPUTS; ++k) {
+      rl.fb_pending[k] = false;
+      rl.fb_error[k] = false;
+      rl.fb_source_scene[k] = -1;
+      rl.btn_pressed[k] = false;
+      rl.btn_raw[k] = false;
+      rl.btn_since[k] = millis32();
+    }
+    if (!rl.valid || !rl.enabled) continue;
+    for (uint8_t k = 0; k < outputs_count(rl); ++k) {
+      if (rl.in_gpio[k] < 0) continue;
+      const uint pin = static_cast<uint>(rl.in_gpio[k]);
+      if (rl.in_role[k] == static_cast<uint8_t>(InRole::Taster)) {
+        gpio_pull_up(pin);  // Taster schaltet gegen GND
+      } else if (rl.in_role[k] == static_cast<uint8_t>(InRole::Feedback)) {
+        if (rl.in_active_low[k]) gpio_pull_up(pin); else gpio_pull_down(pin);
+      }
+    }
   }
   update_scene_feedback_errors();
+}
+
+// Initialisiert alle Ausgangs-Pins als Ausgang (Idle) und gibt den gelatchten Zustand aus.
+static void apply_all_outputs() {
+  for (uint8_t pin : cfg::OUTPUT_PINS) {
+    gpio_init(pin);
+    gpio_set_dir(pin, GPIO_OUT);
+  }
+  for (uint8_t r = 0; r < cfg::MAX_RELAIS; ++r) {
+    Relais &rl = relais[r];
+    if (!rl.valid || !rl.enabled) continue;
+    for (uint8_t k = 0; k < outputs_count(rl); ++k) {
+      const bool on = (rl.active_output == static_cast<uint8_t>(k + 1));
+      apply_output(r, k, on);
+    }
+  }
 }
 
 static void broadcast_state() {
@@ -1890,25 +1852,32 @@ static void keepalive_sse() {
   }
 }
 
+// Ausgaenge-Seite: definiert die logischen Buttons (Aktiv, Name, Relais-Eingang).
 static void handle_config_post(uint8_t sn, const HttpRequest &req) {
   {
     StateLock lock;
-    update_names_from_json(req.body);
-    update_bool_array_from_json(req.body, "act_low", relay_active_low);
-    update_bool_array_from_json(req.body, "impulse", relay_impulse);
-    update_uint16_array_from_json(req.body, "impulse_ms", relay_impulse_ms, cfg::MIN_IMPULSE_MS, cfg::MAX_IMPULSE_MS);
-    update_bool_array_from_json(req.body, "feedback_enabled", feedback_enabled);
-    update_bool_array_from_json(req.body, "feedback_low", feedback_active_low);
-    feedback_timeout_ms = std::clamp<uint32_t>(json_uint_value(req.body, "feedback_timeout", feedback_timeout_ms),
-                                                cfg::MIN_INPUT_TIME_MS,
-                                                cfg::MAX_INPUT_TIME_MS);
+    const std::vector<bool> en = json_bool_list(req.body, "btn_enabled");
+    const std::vector<std::string> names = json_string_list(req.body, "btn_names", 32);
+    const std::vector<int> rels = json_int_list(req.body, "btn_relais");
+    const std::vector<int> ins = json_int_list(req.body, "btn_input");
+    for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
+      Button &bt = buttons[b];
+      if (b < en.size()) bt.enabled = en[b];
+      if (b < names.size()) bt.name = names[b];
+      if (b < rels.size()) {
+        const int r = rels[b];
+        bt.relais_idx = (r >= 0 && r < cfg::MAX_RELAIS) ? static_cast<int8_t>(r) : -1;
+      }
+      if (b < ins.size()) {
+        const int k = ins[b];
+        bt.input_idx = (k >= 0 && k < cfg::MAX_OUTPUTS) ? static_cast<uint8_t>(k) : 0;
+      }
+    }
     std::string title = json_string_value(req.body, "title");
     std::string subtitle = json_string_value(req.body, "subtitle");
     if (!title.empty()) site_title = title.substr(0, 64);
     if (!subtitle.empty()) site_subtitle = subtitle.substr(0, 64);
     public_access = json_bool_value(req.body, "public", public_access);
-    for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) apply_relay(i);  // geaenderte Polaritaet sofort ausgeben
-    configure_feedback_inputs();
   }
   save_config();
   broadcast_state();
@@ -2005,9 +1974,10 @@ static std::string build_scenes_html(const Session *session) {
   std::string rows;
   for (uint8_t s = 0; s < cfg::SCENE_COUNT; ++s) {
     std::string cells;
-    for (uint8_t r = 0; r < cfg::RELAY_COUNT; ++r) {
+    for (uint8_t r = 0; r < cfg::MAX_BUTTONS; ++r) {
+      if (!buttons[r].enabled) continue;  // nur aktive Buttons sind in Szenen steuerbar
       const uint8_t a = scenes[s].action[r];
-      const std::string label = relay_names[r].empty() ? ("R" + std::to_string(r + 1)) : relay_names[r];
+      const std::string label = buttons[r].name.empty() ? ("Button " + std::to_string(r + 1)) : buttons[r].name;
       cells += "<div class=\"cell\"><span>" + html_escape(label) + "</span><select data-s=\"" + std::to_string(s) + "\" data-r=\"" + std::to_string(r) + "\">"
                "<option value=\"x\"" + std::string(a == 2 ? " selected" : "") + ">\xe2\x80\x94</option>"
                "<option value=\"0\"" + std::string(a == 0 ? " selected" : "") + ">Aus</option>"
@@ -2028,7 +1998,7 @@ static std::string build_scenes_html(const Session *session) {
       "function save(){const body={mode:document.getElementById('mode').checked};"
       "document.querySelectorAll('.s-en').forEach(e=>{body['s'+e.dataset.s+'_en']=e.checked});"
       "document.querySelectorAll('.s-name').forEach(e=>{body['s'+e.dataset.s+'_name']=e.value.replace(/[\"\\\\]/g,'')});"
-      "for(let s=0;s<" + std::to_string(cfg::SCENE_COUNT) + ";s++){let act='';for(let r=0;r<" + std::to_string(cfg::RELAY_COUNT) + ";r++){const sel=document.querySelector('select[data-s=\"'+s+'\"][data-r=\"'+r+'\"]');act+=sel?sel.value:'x'}body['s'+s+'_act']=act}"
+      "for(let s=0;s<" + std::to_string(cfg::SCENE_COUNT) + ";s++){let act='';for(let r=0;r<" + std::to_string(cfg::MAX_BUTTONS) + ";r++){const sel=document.querySelector('select[data-s=\"'+s+'\"][data-r=\"'+r+'\"]');act+=sel?sel.value:'x'}body['s'+s+'_act']=act}"
       "fetch('/scenes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json()).then(d=>{const m=document.getElementById('msg');m.textContent=d.ok?'Gespeichert':'Fehler';m.className=d.ok?'ok':'err';if(d.ok)setTimeout(()=>{m.textContent='';m.className=''},2000)}).catch(()=>{document.getElementById('msg').textContent='Fehler'})}"
       "</script></body></html>";
   return html;
@@ -2043,7 +2013,7 @@ static void handle_scenes_post(uint8_t sn, const HttpRequest &req) {
       scenes[s].enabled = json_bool_value(req.body, p + "en", scenes[s].enabled);
       scenes[s].name = json_string_value(req.body, p + "name").substr(0, 32);
       const std::string act = json_string_value(req.body, p + "act");
-      for (uint8_t r = 0; r < cfg::RELAY_COUNT && r < act.size(); ++r) {
+      for (uint8_t r = 0; r < cfg::MAX_BUTTONS && r < act.size(); ++r) {
         const char c = act[r];
         scenes[s].action[r] = (c == '1') ? 1 : (c == '0') ? 0 : 2;
       }
@@ -2075,7 +2045,7 @@ static void handle_http(uint8_t sn, const HttpRequest &req) {
     std::string next = form["next"];
     if (next.empty() || next[0] != '/' || next.find("//") != std::string::npos) next = "/config";
     auto it = users_db.find(normalize_username(form["username"]));
-    const bool needs_admin = (next == "/config" || next == "/network" || next == "/scenes" || next == "/admin");
+    const bool needs_admin = (next == "/config" || next == "/relais" || next == "/network" || next == "/scenes" || next == "/admin");
     if (it != users_db.end() && it->second.hash == sha256_hex(form["password"]) && needs_admin && it->second.role != "admin") {
       send_response(sn, "200 OK", "text/html; charset=utf-8", build_login_html(next, true, session_from_headers(req), form["username"], form["username"] + " hat keine Admin-Rechte"));
     } else if (it != users_db.end() && it->second.hash == sha256_hex(form["password"])) {
@@ -2137,6 +2107,14 @@ static void handle_http(uint8_t sn, const HttpRequest &req) {
     } else if (req.method == "GET") send_response(sn, "200 OK", "text/html; charset=utf-8", build_config_html(session));
     else if (req.method == "POST") handle_config_post(sn, req);
     else send_response(sn, "405 Method Not Allowed", "text/plain", "Method not allowed");
+  } else if (req.path == "/relais") {
+    Session *session = session_from_headers(req);
+    if (!session || session->role != "admin") {
+      if (req.method == "GET") send_redirect(sn, "/login?next=/relais");
+      else send_response(sn, "403 Forbidden", "application/json", "{\"error\":\"forbidden\"}");
+    } else if (req.method == "GET") send_response(sn, "200 OK", "text/html; charset=utf-8", build_relais_html(session));
+    else if (req.method == "POST") handle_relais_post(sn, req);
+    else send_response(sn, "405 Method Not Allowed", "text/plain", "Method not allowed");
   } else if (req.path == "/network") {
     Session *session = session_from_headers(req);
     if (!session || session->role != "admin") {
@@ -2193,10 +2171,9 @@ static void handle_http(uint8_t sn, const HttpRequest &req) {
     }
     int idx = std::atoi(req.path.substr(first + 1, second - first - 1).c_str());
     std::string action = req.path.substr(second + 1);
-    if (idx < 0 || idx >= cfg::RELAY_COUNT) send_response(sn, "400 Bad Request", "text/plain", "Index 0-7");
+    if (idx < 0 || idx >= cfg::MAX_BUTTONS) send_response(sn, "400 Bad Request", "text/plain", "Index 0-7");
     else if (action == "toggle" || action == "on" || action == "off") {
-      if (action == "toggle") set_relay(static_cast<uint8_t>(idx), !relay_states[idx]);
-      else set_relay(static_cast<uint8_t>(idx), action == "on");
+      button_command(static_cast<uint8_t>(idx), action == "toggle" ? 2 : (action == "on" ? 1 : 0));
       broadcast_state();
       send_response(sn, "200 OK", "application/json", state_json(session_from_headers(req) != nullptr || public_access));
     } else send_response(sn, "400 Bad Request", "text/plain", "");
@@ -2267,12 +2244,15 @@ static void service_socket(uint8_t sn) {
   }
 }
 
+// Standardwerte (nur als RAM-Defaults, bevor eine Konfig geladen wird) und alle
+// Ausgangs-Pins auf Idle. Die GPIO-Aufloesung erfolgt spaeter in resolve_gpios().
 static void init_relays() {
-  for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) {
-    relay_names[i] = "Relais " + std::to_string(i + 1);
-    gpio_init(cfg::RELAY_PINS[i]);
-    gpio_set_dir(cfg::RELAY_PINS[i], GPIO_OUT);
-    gpio_put(cfg::RELAY_PINS[i], relay_gpio_value(i, false));
+  for (uint8_t r = 0; r < cfg::MAX_RELAIS; ++r) relais[r].name = "Relais " + std::to_string(r + 1);
+  for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) buttons[b].name = "Button " + std::to_string(b + 1);
+  for (uint8_t pin : cfg::OUTPUT_PINS) {
+    gpio_init(pin);
+    gpio_set_dir(pin, GPIO_OUT);
+    gpio_put(pin, 0);
   }
 }
 
@@ -2491,13 +2471,13 @@ static void send_line(const char *prefix, const std::string &value) {
 
 static void send_states() {
   StateLock lock;
-  for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) {
-    uart_puts(UART, ("STATE" + std::to_string(i + 1) + ":").c_str());
-    uart_puts(UART, relay_states[i] ? "ON\n" : "OFF\n");
-    uart_puts(UART, ("ERROR" + std::to_string(i + 1) + ":").c_str());
-    uart_puts(UART, feedback_error[i] ? "ON\n" : "OFF\n");
-    uart_puts(UART, ("SERROR" + std::to_string(i + 1) + ":").c_str());
-    uart_puts(UART, scene_feedback_error[i] ? "ON\n" : "OFF\n");
+  for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
+    uart_puts(UART, ("STATE" + std::to_string(b + 1) + ":").c_str());
+    uart_puts(UART, button_is_on(b) ? "ON\n" : "OFF\n");
+    uart_puts(UART, ("ERROR" + std::to_string(b + 1) + ":").c_str());
+    uart_puts(UART, button_feedback_error(b) ? "ON\n" : "OFF\n");
+    uart_puts(UART, ("SERROR" + std::to_string(b + 1) + ":").c_str());
+    uart_puts(UART, scene_feedback_error[b] ? "ON\n" : "OFF\n");
   }
   uart_puts(UART, ("ASCENE:" + std::to_string(active_scene + 1) + "\n").c_str());
   uart_puts(UART, scene_dirty ? "SDIRTY:ON\n" : "SDIRTY:OFF\n");
@@ -2509,8 +2489,8 @@ static void send_display_config() {
   send_line("TITLE:", site_title);
   uart_puts(UART, scene_mode ? "MODE:SCENE\n" : "MODE:RELAY\n");
   uart_puts(UART, ("IP:" + ip_status_text() + "\n").c_str());
-  for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) {
-    send_line(("NAME" + std::to_string(i + 1) + ":").c_str(), relay_names[i]);
+  for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
+    send_line(("NAME" + std::to_string(b + 1) + ":").c_str(), buttons[b].enabled ? buttons[b].name : std::string());
   }
   for (uint8_t i = 0; i < cfg::SCENE_COUNT; ++i) {
     send_line(("SCENE" + std::to_string(i + 1) + ":").c_str(), scenes[i].enabled ? scenes[i].name : std::string());
@@ -2539,13 +2519,13 @@ static bool handle_switch_command(const char *line) {
   if (!separator) return false;
 
   int switch_number = std::atoi(line + 2);
-  if (switch_number < 1 || switch_number > cfg::RELAY_COUNT) return false;
+  if (switch_number < 1 || switch_number > cfg::MAX_BUTTONS) return false;
 
   const char *state = separator + 1;
   if (std::strcmp(state, "ON") == 0) {
-    set_relay(static_cast<uint8_t>(switch_number - 1), true);
+    button_command(static_cast<uint8_t>(switch_number - 1), 1);
   } else if (std::strcmp(state, "OFF") == 0) {
-    set_relay(static_cast<uint8_t>(switch_number - 1), false);
+    button_command(static_cast<uint8_t>(switch_number - 1), 0);
   } else {
     return false;
   }
@@ -2561,8 +2541,8 @@ static void handle_line(const char *line) {
   } else if (std::strcmp(line, "GET TITLE") == 0) {
     send_line("TITLE:", site_title);
   } else if (std::strcmp(line, "GET NAMES") == 0) {
-    for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) {
-      send_line(("NAME" + std::to_string(i + 1) + ":").c_str(), relay_names[i]);
+    for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
+      send_line(("NAME" + std::to_string(b + 1) + ":").c_str(), buttons[b].enabled ? buttons[b].name : std::string());
     }
     uart_puts(UART, "END NAMES\n");
   } else if (std::strcmp(line, "GET STATES") == 0) {
@@ -2706,7 +2686,8 @@ int main() {
   wipe_persist_slots();  // Einmal-Wipe (mit -DPERSIST_WIPE=ON gebaut): danach ohne Flag neu flashen
 #endif
   ConfigLoadResult config_load_result = load_config();
-  configure_feedback_inputs();
+  resolve_gpios();
+  configure_inputs();
   init_users();
   if (config_load_result == ConfigLoadResult::Empty) {
     printf("Keine gespeicherte Konfiguration gefunden, Defaults nur im RAM aktiv.\n");
@@ -2714,7 +2695,7 @@ int main() {
     persist_write_locked = true;
     printf("Persistenz-Datenstruktur geaendert oder ungueltig, Flash-Daten werden nicht ueberschrieben.\n");
   }
-  for (uint8_t i = 0; i < cfg::RELAY_COUNT; ++i) apply_relay(i);
+  apply_all_outputs();
   g_use_dhcp = dhcp_requested_at_boot();  // Netzwerkmodus frueh bestimmen (fuer IP-Anzeige am ESP)
   // Ab hier stehen Titel/Namen/Zustaende fest: ESP-Display sofort bedienen (vor DHCP)
   esp_link::flush_rx();
@@ -2733,17 +2714,14 @@ int main() {
       g_ip_status_dirty = false;
       esp_link::notify_ip_status();
     }
-#ifdef INPUT_MODE_BUTTON
-    if (service_buttons()) {
+    if (service_tasters()) {  // physische Taster (je Ausgang mit Rolle==Taster)
       g_sse_dirty = true;
     }
-#else
-    if (service_relay_feedback()) {
+    if (service_relay_feedback()) {  // Rueckmeldungen (je Ausgang mit Rolle==Feedback)
       esp_link_state_dirty = true;
       g_sse_dirty = true;
     }
-#endif
-    if (service_impulses()) {  // abgelaufene Impulse (in beiden Eingangsmodi) beenden
+    if (service_impulses()) {  // abgelaufene Impulse beenden
       esp_link_state_dirty = true;
       g_sse_dirty = true;
     }

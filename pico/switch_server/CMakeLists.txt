@@ -72,20 +72,8 @@ target_link_libraries(switch_w6300_relay PRIVATE
 # muss multicore-sicher sein (Spinlock um den Heap).
 target_compile_definitions(switch_w6300_relay PRIVATE PICO_USE_MALLOC_MUTEX=1)
 
-# ---- Eingangsmodus: Taster oder Relais-Rueckmeldung ----------------------
-# -DINPUT_MODE=taster : GP10-14/26-28 als entprellte Taster (Toggle je Relais)
-# -DINPUT_MODE=rueckm : GP10-14/26-28 als physische Relais-Rueckmeldung
-if(NOT DEFINED INPUT_MODE)
-    set(INPUT_MODE "taster")
-endif()
-if(INPUT_MODE STREQUAL "taster")
-    target_compile_definitions(switch_w6300_relay PRIVATE INPUT_MODE_BUTTON=1)
-    message(STATUS "Eingangsmodus (INPUT_MODE): taster (GP10-28 = entprellte Taster)")
-elseif(INPUT_MODE STREQUAL "rueckm")
-    message(STATUS "Eingangsmodus (INPUT_MODE): rueckm (GP10-28 = Relais-Rueckmeldung)")
-else()
-    message(FATAL_ERROR "INPUT_MODE muss 'taster' oder 'rueckm' sein (war: ${INPUT_MODE})")
-endif()
+# Hinweis: Die Eingangsrolle (Rueckmeldung ODER Taster) ist jetzt eine
+# Laufzeit-Option je Relais-Ausgang (Relais-Seite) - kein Compileschalter mehr.
 
 # ---- Einmaliger Persistenz-Wipe (Werksreset) -----------------------------
 # -DPERSIST_WIPE=ON : Firmware loescht beim Boot EINMALIG alle Persistenz-Slots
@@ -107,7 +95,7 @@ pico_add_extra_outputs(switch_w6300_relay)
 
 # ---- Firmware-Version aus Git-Commit-Count (nur Web-Anzeige) --------------
 # Erzeugt bei jedem Build generated/fw_version.h mit FW_VERSION="xx.xxxxx".
-set(FW_MAJOR "06" CACHE STRING "Manuelle Hauptversion (xx)")
+set(FW_MAJOR "07" CACHE STRING "Manuelle Hauptversion (xx)")
 set(FW_VERSION_HEADER "${CMAKE_BINARY_DIR}/generated/fw_version.h")
 add_custom_target(gen_fw_version
     BYPRODUCTS ${FW_VERSION_HEADER}

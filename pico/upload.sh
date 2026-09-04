@@ -10,7 +10,6 @@ WIZNET_PICO_C_PATH="${WIZNET_PICO_C_PATH:-${SCRIPT_DIR}/WIZnet-PICO-C}"
 WIZNET_PICO_C_URL="${WIZNET_PICO_C_URL:-https://github.com/WIZnet-ioNIC/WIZnet-PICO-C.git}"
 WIZNET_PICO_C_REF="${WIZNET_PICO_C_REF:-90136e8b522dd429f0fd966a6d30d8c95066c6e4}"
 JOBS="${JOBS:-$(nproc)}"
-INPUT_MODE="${INPUT_MODE:-taster}"
 WIPE_PERSIST="${WIPE_PERSIST:-0}"
 # Default: ohne BOOTSEL-Taste ueber USB (picotool) flashen. Nur bei -d/--drive
 # oder einem UPLOAD_DIR-Argument wird stattdessen auf ein BOOTSEL-Laufwerk kopiert.
@@ -33,24 +32,19 @@ while [[ $# -gt 0 ]]; do
       USB_FLASH=0
       shift
       ;;
-    -m|--mode)
-      INPUT_MODE="${2:-}"
-      shift 2
-      ;;
     -w|--wipe-persist)
       WIPE_PERSIST=1
       shift
       ;;
     -h|--help)
       cat <<EOF
-Usage: $(basename "$0") [-c|--clean] [-m|--mode taster|rueckm] [-w|--wipe-persist] [-d|--drive] [UPLOAD_DIR]
+Usage: $(basename "$0") [-c|--clean] [-w|--wipe-persist] [-d|--drive] [UPLOAD_DIR]
 
 Standard: Flashen OHNE BOOTSEL-Taste ueber USB (picotool). Der laufende Pico
 wird per Software in BOOTSEL versetzt, geflasht und neu gestartet.
 
 Options:
   -c, --clean          Build-Verzeichnis vor dem Bau loeschen (Clean Build)
-  -m, --mode MODE      Eingangsmodus: taster (Default) oder rueckm
   -w, --wipe-persist   EINMAL-Werksreset: Firmware loescht beim Boot alle
                        gespeicherten Einstellungen (Persistenz-Slots). Danach
                        OHNE dieses Flag neu flashen, sonst wird jeder Boot geloescht.
@@ -63,7 +57,6 @@ UPLOAD_DIR  Zielverzeichnis fuer die UF2-Datei (impliziert -d/--drive,
             Default: /media/\$USER/RP2350)
 
 Umgebung:
-  INPUT_MODE          Eingangsmodus (taster|rueckm), von -m/--mode ueberschrieben
   USB_FLASH           1 = USB/picotool (Default), 0 = BOOTSEL-Laufwerk
   PICOTOOL            picotool-Binary fuer USB-Flash (Default: picotool aus PATH)
   WIZNET_PICO_C_PATH  Pfad zum WIZnet-PICO-C-Checkout (Default: ${SCRIPT_DIR}/WIZnet-PICO-C)
@@ -131,11 +124,6 @@ if [[ "${CLEAN}" -eq 1 ]]; then
   rm -rf "${BUILD_DIR}"
 fi
 
-if [[ "${INPUT_MODE}" != "taster" && "${INPUT_MODE}" != "rueckm" ]]; then
-  echo "Fehler: ungueltiger INPUT_MODE '${INPUT_MODE}' (erlaubt: taster, rueckm)" >&2
-  exit 1
-fi
-
 if [[ "${WIPE_PERSIST}" -eq 1 ]]; then
   PERSIST_WIPE_CMAKE=ON
   echo "!! WARNUNG: PERSIST_WIPE=ON -> diese Firmware LOESCHT beim Boot alle gespeicherten"
@@ -144,8 +132,8 @@ else
   PERSIST_WIPE_CMAKE=OFF
 fi
 
-echo "==> CMake configure (INPUT_MODE=${INPUT_MODE}, PERSIST_WIPE=${PERSIST_WIPE_CMAKE})"
-cmake -S "${PROJECT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release -DWIZNET_PICO_C_PATH="${WIZNET_PICO_C_PATH}" -DINPUT_MODE="${INPUT_MODE}" -DPERSIST_WIPE="${PERSIST_WIPE_CMAKE}"
+echo "==> CMake configure (PERSIST_WIPE=${PERSIST_WIPE_CMAKE})"
+cmake -S "${PROJECT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release -DWIZNET_PICO_C_PATH="${WIZNET_PICO_C_PATH}" -DPERSIST_WIPE="${PERSIST_WIPE_CMAKE}"
 
 echo "==> Make build (${JOBS} jobs)"
 make -C "${BUILD_DIR}" -j"${JOBS}"
