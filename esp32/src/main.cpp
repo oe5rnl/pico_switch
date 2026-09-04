@@ -83,6 +83,7 @@ static lv_obj_t * switch_lbls[SWITCH_COUNT]  = { nullptr };
 static lv_obj_t * warn_dots[SWITCH_COUNT]    = { nullptr };
 static lv_obj_t * title_label = nullptr;
 static lv_obj_t * ip_label    = nullptr;
+static lv_obj_t * mode_label  = nullptr;  // Modusanzeige unten rechts ("Szenen"/"Buttons")
 static lv_obj_t * splash_label = nullptr;  // Startanzeige "sw_switch" statt Default-Buttons
 static lv_obj_t * splash_ver   = nullptr;  // Firmware-Version unter der Startanzeige
 static lv_obj_t * splash_credit = nullptr; // Autorenzeile unter der Firmware-Version
@@ -154,6 +155,14 @@ static void set_ip_text(const char *text)
 {
     if (!ip_label) return;
     lv_label_set_text(ip_label, text);
+}
+
+// Zeigt unten rechts den aktiven Modus an ("Szenen" oder "Buttons").
+static void update_mode_label()
+{
+    if (!mode_label) return;
+    lv_label_set_text(mode_label, scene_mode ? "Szenen" : "Buttons");
+    lv_obj_align(mode_label, LV_ALIGN_BOTTOM_RIGHT, -4, -2);
 }
 
 // Liest eine Zeile (bis '\n') von PICO_UART, max. timeout_ms.
@@ -416,9 +425,14 @@ static void update_switch_visual(int idx)
         return;
     }
 
+    if (switch_names[idx].length() == 0) {  // deaktivierter Button -> ausblenden
+        lv_obj_add_flag(btn, LV_OBJ_FLAG_HIDDEN);
+        if (warn_dots[idx]) lv_obj_add_flag(warn_dots[idx], LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
     lv_obj_clear_flag(btn, LV_OBJ_FLAG_HIDDEN);
     if (warn_dots[idx]) lv_obj_add_flag(warn_dots[idx], LV_OBJ_FLAG_HIDDEN);
-    String name = switch_names[idx].length() > 0 ? switch_names[idx] : String(idx + 1);
+    String name = switch_names[idx];
     name.replace("|", "\n"); /* '|' im Namen erzwingt Zeilenumbruch am Display */
     if(feedback_error[idx]) {
         lv_obj_set_style_bg_color(btn, lv_color_hex(0xF00000), 0);
@@ -434,21 +448,26 @@ static void update_switch_visual(int idx)
     }
 }
 
+// Sichtbar (= im Layout platziert): im Szenen-Modus aktivierte Szenen, sonst
+// aktivierte Buttons (jeweils nicht-leerer Name).
+static bool layout_visible(int i)
+{
+    return scene_mode ? (scene_names[i].length() > 0) : (switch_names[i].length() > 0);
+}
+
 static void apply_button_layout()
 {
-    /* aktivierte Szenen sammeln (für Szenen-Modus) */
+    /* sichtbare Elemente des aktiven Modus zaehlen */
     int n = 0;
-    if (scene_mode) {
-        for (int i = 0; i < SWITCH_COUNT; i++) {
-            if (scene_names[i].length() > 0) n++;
-        }
+    for (int i = 0; i < SWITCH_COUNT; i++) {
+        if (switch_btns[i] && layout_visible(i)) n++;
     }
 
     const int y_top  = 45;
     const int y_bot  = 220; /* über IP-Label */
     const int area_h = y_bot - y_top;
 
-    if (scene_mode && n >= 1 && n <= 3) {
+    if (n >= 1 && n <= 3) {  /* dynamische Groesse (Button- wie Szenen-Modus) */
         int btn_w, btn_h = 150, gap_x, x_start;
         if      (n == 1) { btn_w = 200; gap_x =  0; }
         else if (n == 2) { btn_w = 140; gap_x = 12; }
@@ -459,7 +478,7 @@ static void apply_button_layout()
         int j = 0;
         for (int i = 0; i < SWITCH_COUNT; i++) {
             if (!switch_btns[i] || !switch_lbls[i]) continue;
-            if (scene_names[i].length() > 0) {
+            if (layout_visible(i)) {
                 lv_obj_set_size(switch_btns[i], btn_w, btn_h);
                 lv_obj_set_pos(switch_btns[i], x_start + j * (btn_w + gap_x), y_pos);
                 lv_obj_set_width(switch_lbls[i], btn_w - 12);
@@ -469,18 +488,22 @@ static void apply_button_layout()
             }
         }
     } else {
-        /* Standard 4×2-Raster */
+        /* Standard 4×2-Raster: nur sichtbare Buttons (im Button-Modus die aktivierten
+           = nicht-leerer Name, im Szenen-Modus die aktivierten Szenen) kompakt packen. */
         const int cols=4, gw=70, gh=78, gx=8, gy=8;
         const int grid_w = cols * gw + (cols - 1) * gx;
         const int x_start = (screenWidth - grid_w) / 2;
+        int j = 0;
         for (int i = 0; i < SWITCH_COUNT; i++) {
             if (!switch_btns[i] || !switch_lbls[i]) continue;
+            if (!layout_visible(i)) continue;
             lv_obj_set_size(switch_btns[i], gw, gh);
-            lv_obj_set_pos(switch_btns[i], x_start + (i % cols) * (gw + gx),
-                                           y_top   + (i / cols) * (gh + gy));
+            lv_obj_set_pos(switch_btns[i], x_start + (j % cols) * (gw + gx),
+                                           y_top   + (j / cols) * (gh + gy));
             lv_obj_set_width(switch_lbls[i], gw - 8);
             lv_obj_center(switch_lbls[i]);
             if (warn_dots[i]) lv_obj_align(warn_dots[i], LV_ALIGN_TOP_RIGHT, -2, 2);
+            j++;
         }
     }
 }
@@ -499,6 +522,10 @@ static void set_splash_visible(bool visible)
         if (visible) lv_obj_clear_flag(splash_credit, LV_OBJ_FLAG_HIDDEN);
         else         lv_obj_add_flag(splash_credit, LV_OBJ_FLAG_HIDDEN);
     }
+    if (mode_label) {  // Modusanzeige nur zusammen mit den Buttons zeigen
+        if (visible) lv_obj_add_flag(mode_label, LV_OBJ_FLAG_HIDDEN);
+        else         lv_obj_clear_flag(mode_label, LV_OBJ_FLAG_HIDDEN);
+    }
     if (visible) {  // Buttons ausblenden, solange die Startanzeige laeuft
         for (int i = 0; i < SWITCH_COUNT; i++) {
             if (switch_btns[i]) lv_obj_add_flag(switch_btns[i], LV_OBJ_FLAG_HIDDEN);
@@ -510,6 +537,7 @@ static void refresh_all_buttons()
 {
     set_splash_visible(false);
     apply_button_layout();
+    update_mode_label();
     for(int i = 0; i < SWITCH_COUNT; i++) {
         update_switch_visual(i);
     }
@@ -552,6 +580,14 @@ static void create_ui(void)
     lv_obj_set_style_text_color(ipl, lv_color_hex(0x808080), 0);
     lv_obj_align(ipl, LV_ALIGN_BOTTOM_LEFT, 4, -2);
     ip_label = ipl;
+
+    /* Modus unten rechts ("Szenen"/"Buttons") */
+    lv_obj_t * mdl = lv_label_create(scr);
+    lv_label_set_text(mdl, "");
+    lv_obj_set_style_text_font(mdl, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(mdl, lv_color_hex(0x808080), 0);
+    lv_obj_align(mdl, LV_ALIGN_BOTTOM_RIGHT, -4, -2);
+    mode_label = mdl;
 
     /* Button-Grid: 4 Spalten x 2 Zeilen */
     const int cols      = 4;

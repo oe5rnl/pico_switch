@@ -46,9 +46,9 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
 
 | Konstante | Wert | Bedeutung |
 |---|---|---|
-| `MAX_RELAIS` | 8 | Konfigurierbare Relais (Typ einfach/4-fach) |
+| `MAX_RELAIS` | 8 | Konfigurierbare Relais (Typ 1-fach/2-fach/4-fach) |
 | `MAX_BUTTONS` | 8 | Logische Bedien-Buttons (Web + ESP-Display) |
-| `MAX_OUTPUTS` | 4 | Ausgänge je Relais (einfach 1, 4-fach 4) |
+| `MAX_OUTPUTS` | 4 | Ausgänge je Relais (1-fach 1, 4-fach 4) |
 | `SCENE_COUNT` | 8 | Anzahl konfigurierbarer Szenen |
 | `OUTPUT_PINS` | `{2,3,4,5,6,7,8,9}` | Pool wählbarer Ausgangs-GPIOs |
 | `INPUT_PINS` | `{10,11,12,13,14,26,27,28}` | Fest gepaarter Eingangs-Pool (Rückmeldung **oder** Taster je Ausgang, siehe 2.9): `OUTPUT_PINS[i]`↔`INPUT_PINS[i]` |
@@ -93,13 +93,13 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
 | GET | `/`, `/index.html` | Haupt-UI |
 | GET/POST | `/login`, `/logout` | Authentifizierung |
 | GET/POST | `/password` | Passwort ändern |
-| GET/POST | `/config` | „Ausgänge/Buttons": Titel/Untertitel/`public_access` + je Button (1–8) Aktiv, Name, Zuordnung zu einem Relais-Eingang (Dropdown) |
-| GET/POST | `/relais` | „Relais" (Admin): je Relais (1–8) Aktiv, Typ (einfach/2-fach/4-fach), Name, Low aktiv, Impuls+Impulszeit; je Ausgang wählbare Ausgangs-GPIO + Eingangsrolle (keine/Rückmeldung/Taster) + LOW; globale Rückmeldezeit und Taster-Entprellzeit |
+| GET/POST | `/config` | „Buttons": Titel/Untertitel/`public_access` + je Button (1–8) Aktiv, Name, Zuordnung zu einem Relais-Eingang (Dropdown) |
+| GET/POST | `/relais` | „Relais" (Admin): je Relais (1–8) Aktiv, Typ (1-fach/2-fach/4-fach), Name, Low aktiv, Impuls+Impulszeit; je Ausgang wählbare Ausgangs-GPIO + Eingangsrolle (keine/Rückmeldung/Taster) + LOW; globale Rückmeldezeit und Taster-Entprellzeit |
 | GET/POST | `/network` | Statische IP-Einstellungen |
 | GET/POST | `/admin` | Benutzer-/API-Key-Verwaltung |
 | GET | `/me` | Aktueller Benutzer |
 | GET | `/active_users` | Aktive Sessions/Gäste |
-| GET | `/state` | Button-Zustände (JSON: `relays`=Button-EIN, `names`, `feedback_errors`, `scene_mode`, `buttons`=Tasterdruck) |
+| GET | `/state` | Button-Zustände (JSON: `relays`=Button-EIN, `names`, `btn_en`=aktiviert, `feedback_errors`, `scene_mode`, `buttons`=Tasterdruck) |
 | GET/POST | `/scenes` | Szenen-Modus + Szenen konfigurieren (Aktion je **Button**, Admin) |
 | GET | `/events` | Server-Sent Events (Live-Status) |
 | POST | `/relay/<idx>/<on\|off\|toggle>` | Button `idx` (0–7) schalten/umschalten |
@@ -116,8 +116,13 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
 - Eine **Szene** hat: `enabled`-Flag, Name und je **Button** eine Aktion:
   `0` = aus, `1` = ein, `2` = unverändert. Bei 2-/4-fach-Buttons wirkt nur `1` (wählt
   den Ausgang an); `0` ist bedeutungslos (gegenseitiger Ausschluss) und wird übersprungen.
-- Aktivierung ist **momentan** (kein gehaltener Aktiv-Zustand): `activate_scene()`
-  wendet die Aktionen an, speichert bei Änderung und meldet den neuen Zustand.
+  **1-fach-Relais werden getoggelt** (Aktion ≠ „unverändert" = ein Tastendruck, wie im
+  Button-Betrieb); die `/scenes`-UI zeigt für sie „—"/„Umschalten" statt Aus/Ein.
+- Aktivierung ist **momentan**: `activate_scene()` wendet die Aktionen an, speichert bei
+  Änderung und meldet den neuen Zustand. Die Szene gilt danach nur dann als **aktiv**
+  (`active_scene`, grüne Button-Anzeige), wenn der aktuelle Zustand ihrer Vorgabe
+  entspricht (`scene_state_matches`) — so folgt die Anzeige einem 1-fach-Toggle (nach
+  AUS nicht mehr grün).
 - Direkte Button-Steuerung (`/relay/...`) bleibt parallel nutzbar.
 
 ### 2.5 ESP-Link (`namespace esp_link`)
@@ -217,7 +222,7 @@ Reihenfolge bewusst so gewählt, damit das Display **unabhängig vom DHCP** frü
 
 Zentrale Abstraktion (kein Compileschalter mehr):
 
-- **Relais** (1–8, Seite `/relais`): Typ `einfach` (1 Eingang → 1 Ausgangs-GPIO),
+- **Relais** (1–8, Seite `/relais`): Typ `1-fach` (1 Eingang → 1 Ausgangs-GPIO),
   `2-fach` (2 Ausgänge) oder `4-fach` (4 Ausgänge). `2-fach`/`4-fach` sind gegenseitig
   ausschließend — „immer genau ein Ausgang aktiv". Je Relais optional **Impuls** (nur der gewählte Ausgang wird
   gepulst/gesetzt, die Anzeige `active_output` bleibt gelatcht) und Ausgangspolarität.
@@ -232,7 +237,7 @@ Zentrale Abstraktion (kein Compileschalter mehr):
     der zugehörige logische Button.
   - `keine` — Eingang ungenutzt.
 - **Buttons** (1–8, Seite `/config`): logische Bedienelemente (Web + ESP-Display),
-  jeder verweist explizit auf einen Relais-Eingang. Ein `einfach`-Relais belegt 1
+  jeder verweist explizit auf einen Relais-Eingang. Ein `1-fach`-Relais belegt 1
   Button-Ziel, ein `4-fach`-Relais 4 (gegenseitig ausschließend → auf dem Display
   ist stets nur einer der 4 „ON").
 - Kern-Naht: `activate_relais_input()`/`button_command()` (logische Buttons + ESP
@@ -247,8 +252,12 @@ Zentrale Abstraktion (kein Compileschalter mehr):
 
 Lokales Touch-Terminal (Board ESP32-2432S028, „CYD"), LVGL 8 + TFT_eSPI + XPT2046-Touch.
 
-- **UI**: 8 Buttons (4×2-Raster) mit ON/OFF-Statusfarben, Titelzeile.
-  Startanzeige „wait for init", bis der Pico antwortet.
+- **UI**: bis zu 8 Buttons mit ON/OFF-Statusfarben, Titelzeile. Es werden **nur
+  aktivierte Buttons** angezeigt (Name nicht leer) und lückenlos gepackt — im Button-
+  wie im Szenen-Modus. **Dynamische Größe** (`apply_button_layout`): bei 1–3 sichtbaren
+  Elementen große Kacheln (Höhe 150, Breite 200/140/88), sonst 4×2-Raster. Startanzeige
+  „wait for init", bis der Pico antwortet.
+  Unten links die IP-Statuszeile, **unten rechts der aktive Modus** („Szenen"/„Buttons", aus `MODE:`).
   Im **Szenen-Modus** zeigen die Buttons die Szenennamen (blau); nur aktivierte
   Szenen sind sichtbar, ein Tastendruck löst die Szene aus (momentan).
 - **Pico-Link**: `PICO_UART = Serial` (UART0, `GPIO1` = TX, `GPIO3` = RX), 115200 Baud.
