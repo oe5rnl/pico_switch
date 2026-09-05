@@ -107,6 +107,11 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
 
 - **Auth**: Session-Token (Cookie), Rollen, optionaler `public_access`, API-Keys.
 - **SSE**: `/events` verteilt Zustandsänderungen live; Keepalive-`ping` alle 1 s.
+- **Konsistenzprüfung beim Speichern** (`/config`, `/relais`, `/scenes`): die POST-Handler
+  validieren vor dem Übernehmen. Harte Fehler → `{"ok":false,"error":"…"}` (nicht
+  gespeichert), unkritische Punkte → `{"ok":true,"warning":"…"}`. Geprüft u. a.:
+  GPIO-Doppelbelegung/fehlende Ausgangs-GPIO (Relais), Button→Relais/Eingang gültig +
+  keine Doppelbelegung (Buttons), Mehrfach-Relais-Konflikt „mehrere Ein" (Szenen).
 
 ### 2.5 Szenen-Modus
 

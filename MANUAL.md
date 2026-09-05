@@ -171,6 +171,16 @@ Pull-Up-Beschaltung ist dann aktiv (gedrückt = LOW).
 
 Die administrativen Seiten sind über **Konfig** erreichbar und erfordern ein Konto mit der Rolle `admin`. Änderungen werden erst mit **Speichern** übernommen.
 
+Beim **Speichern** prüft der Pico die Konfiguration auf Konsistenz:
+
+- **Fehler** (rot) verhindern das Speichern und nennen die Ursache. Beispiele:
+  Relais mit doppelt belegter Ausgangs-GPIO oder ohne GPIO; Button ohne/auf inaktives
+  Relais oder auf einen nicht existierenden Eingang; zwei Buttons auf demselben
+  Relais-Eingang; Szene mit mehreren „Ein" auf dasselbe Mehrfach-Relais.
+- **Hinweise** (ebenfalls hervorgehoben) werden gespeichert, aber gemeldet. Beispiele:
+  ein Mehrfach-Relais, dessen Eingänge nicht vollständig mit Buttons belegt sind; eine
+  Szene, die einen inaktiven Button anspricht oder keine Aktion enthält.
+
 Die horizontale Menüleiste ist auf allen Admin-Seiten gleich (Übersicht, Speichern,
 Buttons, Relais, Szenen, Benutzer/API, Network, Abmelden); die aktuelle Seite ist rot
 hervorgehoben.

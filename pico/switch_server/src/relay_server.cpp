@@ -1509,11 +1509,11 @@ static std::string build_config_html(const Session *session) {
                "\",\"rel\":" + std::to_string(bt.relais_idx) + ",\"in\":" + std::to_string(bt.input_idx) + "}";
   }
   btnData += "]";
-  std::string html = "<!DOCTYPE html><html lang=\"de\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + html_escape(site_title) + " - Buttons</title><style>html,body{margin:0}body{box-sizing:border-box;font-family:'Segoe UI',sans-serif;background:#121212;color:#e0e0e0;min-height:100vh;padding:108px 24px 24px}" + page_header_css() + "h1{color:#4dabf7}.card{background:#1e1e1e;padding:24px;max-width:980px;border:1px solid #2d2d2d}.row{display:flex;gap:12px;margin-bottom:12px;align-items:center}.row>label:first-child{width:160px;color:#9e9e9e;white-space:nowrap}.row>input{flex:1;min-width:180px;background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:8px}.brow{display:flex;flex-wrap:wrap;gap:10px;align-items:center;border-top:1px solid #2d2d2d;padding-top:10px;margin-bottom:6px}.brow .bn{flex:none;width:80px;color:#9e9e9e}.brow .checklbl{flex:none;display:flex;align-items:center;gap:4px;color:#9e9e9e}.brow input[type=text]{flex:0 1 auto;min-width:120px;background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:8px}.brow select{background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:8px;min-width:200px}.actions button{margin:0}button{padding:10px 14px;margin:4px;background:#1a3a5c;color:#4dabf7;border:1px solid #1e5a9e;font-weight:700}.save{background:#1b4332;color:#51cf66;border-color:#2d6a4f}.danger{background:#3d1515;color:#ff6b6b;border-color:#7a2020}.ok{color:#51cf66}.err{color:#ff6b6b}</style></head><body>" + page_header_html(session, true) + "<h1>Buttons</h1>" + page_nav_actions("config") + "<div id=\"msg\"></div><div class=\"card\"><div class=\"row\"><label>Titel</label><input id=\"title\" maxlength=\"64\" value=\"" + html_escape(site_title) + "\"></div><div class=\"row\"><label>Ueberschrift</label><input id=\"subtitle\" maxlength=\"64\" value=\"" + html_escape(site_subtitle) + "\"></div><div class=\"row\"><label>Oeffentlich</label><input type=\"checkbox\" id=\"pub\" style=\"flex:none;width:auto;padding:0;margin:0;border:none;background:none\" " + std::string(public_access ? "checked" : "") + "></div><div id=\"btns\"></div></div><script>const relData=" + relais_options_json() + ";const btnData=" + btnData + ";const msg=document.getElementById('msg');" + std::string(sse_conn_script()) +
+  std::string html = "<!DOCTYPE html><html lang=\"de\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + html_escape(site_title) + " - Buttons</title><style>html,body{margin:0}body{box-sizing:border-box;font-family:'Segoe UI',sans-serif;background:#121212;color:#e0e0e0;min-height:100vh;padding:108px 24px 24px}" + page_header_css() + "h1{color:#4dabf7}.card{background:#1e1e1e;padding:24px;max-width:980px;border:1px solid #2d2d2d}.row{display:flex;gap:12px;margin-bottom:12px;align-items:center}.row>label:first-child{width:160px;color:#9e9e9e;white-space:nowrap}.row>input{flex:1;min-width:180px;background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:8px}.brow{display:flex;flex-wrap:wrap;gap:10px;align-items:center;border-top:1px solid #2d2d2d;padding-top:10px;margin-bottom:6px}.brow .bn{flex:none;width:80px;color:#9e9e9e}.brow .checklbl{flex:none;display:flex;align-items:center;gap:4px;color:#9e9e9e}.brow input[type=text]{flex:0 1 auto;min-width:120px;background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:8px}.brow select{background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:8px;min-width:200px}.actions button{margin:0}button{padding:10px 14px;margin:4px;background:#1a3a5c;color:#4dabf7;border:1px solid #1e5a9e;font-weight:700}.save{background:#1b4332;color:#51cf66;border-color:#2d6a4f}.danger{background:#3d1515;color:#ff6b6b;border-color:#7a2020}.ok{color:#51cf66}.err{color:#ff6b6b}#msg{min-height:1.8em;margin:8px 0;display:flex;align-items:center}</style></head><body>" + page_header_html(session, true) + "<h1>Buttons</h1>" + page_nav_actions("config") + "<div id=\"msg\"></div><div class=\"card\"><div class=\"row\"><label>Titel</label><input id=\"title\" maxlength=\"64\" value=\"" + html_escape(site_title) + "\"></div><div class=\"row\"><label>Ueberschrift</label><input id=\"subtitle\" maxlength=\"64\" value=\"" + html_escape(site_subtitle) + "\"></div><div class=\"row\"><label>Oeffentlich</label><input type=\"checkbox\" id=\"pub\" style=\"flex:none;width:auto;padding:0;margin:0;border:none;background:none\" " + std::string(public_access ? "checked" : "") + "></div><div id=\"btns\"></div></div><script>const relData=" + relais_options_json() + ";const btnData=" + btnData + ";const msg=document.getElementById('msg');" + std::string(sse_conn_script()) +
     "function optLabel(r,k){const base='Relais '+(r.i+1)+(r.name?' ('+r.name+')':'');return r.n>1?base+' \\u2013 Ausgang '+(k+1):base}"
     "function buildSelect(b){let s='<select data-b=\"'+b+'\"><option value=\"-1_0\">\\u2013 keine \\u2013</option>';relData.forEach(r=>{for(let k=0;k<r.n;k++){const v=r.i+'_'+k;const sel=(btnData[b].rel===r.i&&btnData[b].in===k)?' selected':'';s+='<option value=\"'+v+'\"'+sel+'>'+optLabel(r,k)+'</option>'}});return s+'</select>'}"
     "const wrap=document.getElementById('btns');let h='';for(let b=0;b<" + std::to_string(cfg::MAX_BUTTONS) + ";b++){h+='<div class=\"brow\"><span class=\"bn\">Button '+(b+1)+'</span><label class=\"checklbl\"><input type=\"checkbox\" data-en=\"'+b+'\"'+(btnData[b].en?' checked':'')+'> aktiv</label><input type=\"text\" maxlength=\"32\" data-name=\"'+b+'\" placeholder=\"Name\" value=\"\">'+buildSelect(b)+'</div>'}wrap.innerHTML=h;for(let b=0;b<" + std::to_string(cfg::MAX_BUTTONS) + ";b++){document.querySelector('input[data-name=\"'+b+'\"]').value=btnData[b].name}"
-    "function save(){const en=[],names=[],rel=[],inp=[];for(let b=0;b<" + std::to_string(cfg::MAX_BUTTONS) + ";b++){en.push(document.querySelector('input[data-en=\"'+b+'\"]').checked);names.push(document.querySelector('input[data-name=\"'+b+'\"]').value.trim());const v=document.querySelector('select[data-b=\"'+b+'\"]').value.split('_');rel.push(+v[0]);inp.push(+v[1])}fetch('/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({btn_enabled:en,btn_names:names,btn_relais:rel,btn_input:inp,title:document.getElementById('title').value,subtitle:document.getElementById('subtitle').value,public:document.getElementById('pub').checked})}).then(r=>r.json()).then(()=>{msg.textContent='OK gespeichert';msg.className='ok';setTimeout(()=>{msg.textContent='';msg.className=''},2000);const nt=document.getElementById('title').value.trim();if(nt){const st=document.getElementById('sitetitle');if(st)st.textContent=nt;document.title=nt+' - Buttons'}}).catch(()=>{msg.textContent='Fehler';msg.className='err'})}"
+    "function save(){const en=[],names=[],rel=[],inp=[];for(let b=0;b<" + std::to_string(cfg::MAX_BUTTONS) + ";b++){en.push(document.querySelector('input[data-en=\"'+b+'\"]').checked);names.push(document.querySelector('input[data-name=\"'+b+'\"]').value.trim());const v=document.querySelector('select[data-b=\"'+b+'\"]').value.split('_');rel.push(+v[0]);inp.push(+v[1])}fetch('/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({btn_enabled:en,btn_names:names,btn_relais:rel,btn_input:inp,title:document.getElementById('title').value,subtitle:document.getElementById('subtitle').value,public:document.getElementById('pub').checked})}).then(r=>r.json()).then(d=>{if(d.ok===false){msg.textContent=d.error||'Fehler';msg.className='err';return}const nt=document.getElementById('title').value.trim();if(nt){const st=document.getElementById('sitetitle');if(st)st.textContent=nt;document.title=nt+' - Buttons'}if(d.warning){msg.textContent='Gespeichert \\u2013 Hinweis: '+d.warning;msg.className='err'}else{msg.textContent='OK gespeichert';msg.className='ok';setTimeout(()=>{msg.textContent='';msg.className=''},2000)}}).catch(()=>{msg.textContent='Fehler';msg.className='err'})}"
     "</script></body></html>";
   return html;
 }
@@ -1547,7 +1547,7 @@ static std::string build_relais_html(const Session *session) {
   const std::string tmax = std::to_string(cfg::MAX_FEEDBACK_TIMEOUT_MS);
   const std::string dmin = std::to_string(cfg::MIN_DEBOUNCE_MS);
   const std::string dmax = std::to_string(cfg::MAX_DEBOUNCE_MS);
-  std::string html = "<!DOCTYPE html><html lang=\"de\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + html_escape(site_title) + " - Relais</title><style>html,body{margin:0}body{box-sizing:border-box;font-family:'Segoe UI',sans-serif;background:#121212;color:#e0e0e0;min-height:100vh;padding:108px 24px 24px}" + page_header_css() + "h1{color:#4dabf7}.card{background:#1e1e1e;padding:20px;max-width:1040px;border:1px solid #2d2d2d}.row{display:flex;gap:12px;margin-bottom:12px;align-items:center}.row>label:first-child{width:180px;color:#9e9e9e;white-space:nowrap}.number-input{max-width:120px;background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:8px}.rel{border-top:1px solid #2d2d2d;padding:10px 0}.rel.collapsed .outs{display:none}.caret{flex:none;background:none;border:0;color:#4dabf7;font-size:1rem;cursor:pointer;padding:0 6px;margin:0;line-height:1}.rhead{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.rhead .rn{flex:none;width:70px;color:#4dabf7;font-weight:700}.rhead input[type=text]{flex:0 1 auto;min-width:120px;background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:8px}.checklbl{display:flex;align-items:center;gap:4px;color:#9e9e9e;white-space:nowrap}select{background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:7px}.outs{margin:8px 0 0 70px}.orow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:6px;color:#9e9e9e}.orow .ol{flex:none;width:80px}.inpin{font-family:monospace;color:#8bd5ff;min-width:64px}.actions{margin:0 0 16px}.actions button{margin:0}button{padding:10px 14px;margin:4px;background:#1a3a5c;color:#4dabf7;border:1px solid #1e5a9e;font-weight:700}.save{background:#1b4332;color:#51cf66;border-color:#2d6a4f}.danger{background:#3d1515;color:#ff6b6b;border-color:#7a2020}.ok{color:#51cf66}.err{color:#ff6b6b}</style></head><body>" + page_header_html(session, true) + "<h1>Relais</h1>" + page_nav_actions("relais") + "<div id=\"msg\"></div><div class=\"card\"><div class=\"row\"><label>Rueckmeldezeit</label><input class=\"number-input\" type=\"number\" id=\"fbtimeout\" min=\"" + tmin + "\" max=\"" + tmax + "\" value=\"" + std::to_string(feedback_timeout_ms) + "\"><span>ms</span></div><div class=\"row\"><label>Taster-Entprellzeit</label><input class=\"number-input\" type=\"number\" id=\"debounce\" min=\"" + dmin + "\" max=\"" + dmax + "\" value=\"" + std::to_string(taster_debounce_ms) + "\"><span>ms</span></div><div id=\"rels\"></div></div><script>const relData=" + relData + ";const OUT=" + outPins + ";const IN=" + inPins + ";const IMPMIN=" + imp_min + ",IMPMAX=" + imp_max + ";const msg=document.getElementById('msg');" + std::string(sse_conn_script()) +
+  std::string html = "<!DOCTYPE html><html lang=\"de\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + html_escape(site_title) + " - Relais</title><style>html,body{margin:0}body{box-sizing:border-box;font-family:'Segoe UI',sans-serif;background:#121212;color:#e0e0e0;min-height:100vh;padding:108px 24px 24px}" + page_header_css() + "h1{color:#4dabf7}.card{background:#1e1e1e;padding:20px;max-width:1040px;border:1px solid #2d2d2d}.row{display:flex;gap:12px;margin-bottom:12px;align-items:center}.row>label:first-child{width:180px;color:#9e9e9e;white-space:nowrap}.number-input{max-width:120px;background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:8px}.rel{border-top:1px solid #2d2d2d;padding:10px 0}.rel.collapsed .outs{display:none}.caret{flex:none;background:none;border:0;color:#4dabf7;font-size:1rem;cursor:pointer;padding:0 6px;margin:0;line-height:1}.rhead{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.rhead .rn{flex:none;width:70px;color:#4dabf7;font-weight:700}.rhead input[type=text]{flex:0 1 auto;min-width:120px;background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:8px}.checklbl{display:flex;align-items:center;gap:4px;color:#9e9e9e;white-space:nowrap}select{background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:7px}.outs{margin:8px 0 0 70px}.orow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:6px;color:#9e9e9e}.orow .ol{flex:none;width:80px}.inpin{font-family:monospace;color:#8bd5ff;min-width:64px}.actions{margin:0 0 16px}.actions button{margin:0}button{padding:10px 14px;margin:4px;background:#1a3a5c;color:#4dabf7;border:1px solid #1e5a9e;font-weight:700}.save{background:#1b4332;color:#51cf66;border-color:#2d6a4f}.danger{background:#3d1515;color:#ff6b6b;border-color:#7a2020}.ok{color:#51cf66}.err{color:#ff6b6b}#msg{min-height:1.8em;margin:8px 0;display:flex;align-items:center}</style></head><body>" + page_header_html(session, true) + "<h1>Relais</h1>" + page_nav_actions("relais") + "<div id=\"msg\"></div><div class=\"card\"><div class=\"row\"><label>Rueckmeldezeit</label><input class=\"number-input\" type=\"number\" id=\"fbtimeout\" min=\"" + tmin + "\" max=\"" + tmax + "\" value=\"" + std::to_string(feedback_timeout_ms) + "\"><span>ms</span></div><div class=\"row\"><label>Taster-Entprellzeit</label><input class=\"number-input\" type=\"number\" id=\"debounce\" min=\"" + dmin + "\" max=\"" + dmax + "\" value=\"" + std::to_string(taster_debounce_ms) + "\"><span>ms</span></div><div id=\"rels\"></div></div><script>const relData=" + relData + ";const OUT=" + outPins + ";const IN=" + inPins + ";const IMPMIN=" + imp_min + ",IMPMAX=" + imp_max + ";const msg=document.getElementById('msg');" + std::string(sse_conn_script()) +
     "function inFor(g){const i=OUT.indexOf(+g);return i<0?'-':('GP'+IN[i])}"
     "function outSelect(r,k){let s='<select class=\"osel\" data-r=\"'+r+'\" data-k=\"'+k+'\" onchange=\"upd()\"><option value=\"-1\">\\u2013</option>';OUT.forEach(p=>{const sel=(relData[r].out[k]===p)?' selected':'';s+='<option value=\"'+p+'\"'+sel+'>GP'+p+'</option>'});return s+'</select>'}"
     "function roleSelect(r,k){const cur=relData[r].role[k];let s='<select class=\"rsel\" data-r=\"'+r+'\" data-k=\"'+k+'\"><option value=\"0\"'+(cur===0?' selected':'')+'>keine</option><option value=\"1\"'+(cur===1?' selected':'')+'>Rueckmeldung</option><option value=\"2\"'+(cur===2?' selected':'')+'>Taster</option></select>';return s}"
@@ -1556,24 +1556,52 @@ static std::string build_relais_html(const Session *session) {
     "function render(){let h='';for(let r=0;r<" + std::to_string(cfg::MAX_RELAIS) + ";r++){const d=relData[r];const n=d.type===1?4:(d.type===2?2:1);h+='<div class=\"rel'+(collapsed[r]?' collapsed':'')+'\"><div class=\"rhead\"><button type=\"button\" class=\"caret\" onclick=\"toggleRel('+r+')\">'+(collapsed[r]?'\\u25B8':'\\u25BE')+'</button><span class=\"rn\">Relais '+(r+1)+'</span>'+'<label class=\"checklbl\"><input type=\"checkbox\" class=\"ren\" data-r=\"'+r+'\"'+(d.en?' checked':'')+'> aktiv</label>'+'<input type=\"text\" maxlength=\"32\" class=\"rname\" data-r=\"'+r+'\" placeholder=\"Name\">'+'<select class=\"rtype\" data-r=\"'+r+'\" onchange=\"upd()\"><option value=\"0\"'+(d.type===0?' selected':'')+'>1-fach</option><option value=\"2\"'+(d.type===2?' selected':'')+'>2-fach</option><option value=\"1\"'+(d.type===1?' selected':'')+'>4-fach</option></select>'+'<label class=\"checklbl\"><input type=\"checkbox\" class=\"rlow\" data-r=\"'+r+'\"'+(d.low?' checked':'')+'> Low aktiv</label>'+'<label class=\"checklbl\"><input type=\"checkbox\" class=\"rimp\" data-r=\"'+r+'\"'+(d.imp?' checked':'')+'> Impuls</label>'+'<input class=\"number-input rimpms\" data-r=\"'+r+'\" type=\"number\" min=\"'+IMPMIN+'\" max=\"'+IMPMAX+'\" value=\"'+d.impms+'\"><span>ms</span></div><div class=\"outs\">';for(let k=0;k<n;k++){h+='<div class=\"orow\"><span class=\"ol\">Ausgang '+(k+1)+'</span>'+outSelect(r,k)+'<span>Eingang</span><span class=\"inpin\" id=\"in'+r+'_'+k+'\">'+inFor(d.out[k])+'</span>'+roleSelect(r,k)+'<label class=\"checklbl\"><input type=\"checkbox\" class=\"rrlow\" data-r=\"'+r+'\" data-k=\"'+k+'\"'+(d.rlow[k]?' checked':'')+'> LOW</label></div>'}h+='</div></div>'}document.getElementById('rels').innerHTML=h;for(let r=0;r<" + std::to_string(cfg::MAX_RELAIS) + ";r++)document.querySelector('input.rname[data-r=\"'+r+'\"]').value=relData[r].name}"
     "function upd(){for(let r=0;r<" + std::to_string(cfg::MAX_RELAIS) + ";r++){relData[r].type=+document.querySelector('select.rtype[data-r=\"'+r+'\"]').value;relData[r].name=document.querySelector('input.rname[data-r=\"'+r+'\"]').value;relData[r].en=document.querySelector('input.ren[data-r=\"'+r+'\"]').checked;relData[r].low=document.querySelector('input.rlow[data-r=\"'+r+'\"]').checked;relData[r].imp=document.querySelector('input.rimp[data-r=\"'+r+'\"]').checked;relData[r].impms=+document.querySelector('input.rimpms[data-r=\"'+r+'\"]').value}document.querySelectorAll('select.osel').forEach(s=>{relData[+s.dataset.r].out[+s.dataset.k]=+s.value});document.querySelectorAll('select.rsel').forEach(s=>{relData[+s.dataset.r].role[+s.dataset.k]=+s.value});document.querySelectorAll('input.rrlow').forEach(c=>{relData[+c.dataset.r].rlow[+c.dataset.k]=c.checked});render()}"
     "render();"
-    "function save(){upd();const en=[],type=[],names=[],low=[],imp=[],impms=[],out=[],role=[],rlow=[];for(let r=0;r<" + std::to_string(cfg::MAX_RELAIS) + ";r++){const d=relData[r];en.push(d.en);type.push(d.type);names.push((d.name||'').trim());low.push(d.low);imp.push(d.imp);impms.push(Math.max(IMPMIN,Math.min(IMPMAX,+d.impms||300)));for(let k=0;k<4;k++){out.push(d.out[k]);role.push(d.role[k]);rlow.push(d.rlow[k])}}const ft=Math.max(" + tmin + ",Math.min(" + tmax + ",+document.getElementById('fbtimeout').value||500));const db=Math.max(" + dmin + ",Math.min(" + dmax + ",+document.getElementById('debounce').value||25));fetch('/relais',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({r_enabled:en,r_type:type,r_names:names,r_low:low,r_imp:imp,r_impms:impms,r_out:out,r_role:role,r_rlow:rlow,feedback_timeout:ft,taster_debounce:db})}).then(r=>r.json()).then(d=>{msg.textContent=d.ok?'Gespeichert':'Fehler';msg.className=d.ok?'ok':'err';if(d.ok)setTimeout(()=>location.reload(),700)}).catch(()=>{msg.textContent='Fehler';msg.className='err'})}"
+    "function save(){upd();const en=[],type=[],names=[],low=[],imp=[],impms=[],out=[],role=[],rlow=[];for(let r=0;r<" + std::to_string(cfg::MAX_RELAIS) + ";r++){const d=relData[r];en.push(d.en);type.push(d.type);names.push((d.name||'').trim());low.push(d.low);imp.push(d.imp);impms.push(Math.max(IMPMIN,Math.min(IMPMAX,+d.impms||300)));for(let k=0;k<4;k++){out.push(d.out[k]);role.push(d.role[k]);rlow.push(d.rlow[k])}}const ft=Math.max(" + tmin + ",Math.min(" + tmax + ",+document.getElementById('fbtimeout').value||500));const db=Math.max(" + dmin + ",Math.min(" + dmax + ",+document.getElementById('debounce').value||25));fetch('/relais',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({r_enabled:en,r_type:type,r_names:names,r_low:low,r_imp:imp,r_impms:impms,r_out:out,r_role:role,r_rlow:rlow,feedback_timeout:ft,taster_debounce:db})}).then(r=>r.json()).then(d=>{if(d.ok===false){msg.textContent=d.error||'Fehler';msg.className='err';return}if(d.warning){msg.textContent='Gespeichert \\u2013 Hinweis: '+d.warning;msg.className='err'}else{msg.textContent='Gespeichert';msg.className='ok';setTimeout(()=>location.reload(),700)}}).catch(()=>{msg.textContent='Fehler';msg.className='err'})}"
     "</script></body></html>";
   return html;
 }
 
 // Relais-Seite POST: uebernimmt Relaisdefinitionen, loest GPIOs auf und wendet sie an.
 static void handle_relais_post(uint8_t sn, const HttpRequest &req) {
+  const std::vector<bool> en = json_bool_list(req.body, "r_enabled");
+  const std::vector<int> type = json_int_list(req.body, "r_type");
+  const std::vector<std::string> names = json_string_list(req.body, "r_names", 32);
+  const std::vector<bool> low = json_bool_list(req.body, "r_low");
+  const std::vector<bool> imp = json_bool_list(req.body, "r_imp");
+  const std::vector<int> impms = json_int_list(req.body, "r_impms");
+  const std::vector<int> out = json_int_list(req.body, "r_out");    // flach r*4+k
+  const std::vector<int> role = json_int_list(req.body, "r_role");  // flach r*4+k
+  const std::vector<bool> rlow = json_bool_list(req.body, "r_rlow"); // flach r*4+k
+
+  // --- Konsistenzpruefung (keine Aenderung, kein Lock: nur eingehende Werte) ---
+  std::string err;
+  std::array<int, 8> used_by;
+  used_by.fill(-1);
+  for (uint8_t r = 0; r < cfg::MAX_RELAIS; ++r) {
+    if (r >= en.size() || !en[r]) continue;
+    const int t = r < type.size() ? type[r] : 0;
+    const uint8_t n = (t == 1) ? 4 : (t == 2) ? 2 : 1;
+    for (uint8_t k = 0; k < n; ++k) {
+      const size_t idx = static_cast<size_t>(r) * cfg::MAX_OUTPUTS + k;
+      const int g = idx < out.size() ? out[idx] : -1;
+      const int pi = output_pool_index(g);
+      if (pi < 0) {
+        err += "Relais " + std::to_string(r + 1) + ": Ausgang " + std::to_string(k + 1) + " hat keine gueltige GPIO. ";
+        continue;
+      }
+      if (used_by[pi] >= 0)
+        err += "GPIO GP" + std::to_string(g) + " doppelt belegt (Relais " + std::to_string(used_by[pi] + 1) + " und Relais " + std::to_string(r + 1) + "). ";
+      else
+        used_by[pi] = r;
+    }
+  }
+  if (!err.empty()) {
+    send_response(sn, "200 OK", "application/json", "{\"ok\":false,\"error\":\"" + json_escape(err) + "\"}");
+    return;
+  }
+
   {
     StateLock lock;
-    const std::vector<bool> en = json_bool_list(req.body, "r_enabled");
-    const std::vector<int> type = json_int_list(req.body, "r_type");
-    const std::vector<std::string> names = json_string_list(req.body, "r_names", 32);
-    const std::vector<bool> low = json_bool_list(req.body, "r_low");
-    const std::vector<bool> imp = json_bool_list(req.body, "r_imp");
-    const std::vector<int> impms = json_int_list(req.body, "r_impms");
-    const std::vector<int> out = json_int_list(req.body, "r_out");    // flach r*4+k
-    const std::vector<int> role = json_int_list(req.body, "r_role");  // flach r*4+k
-    const std::vector<bool> rlow = json_bool_list(req.body, "r_rlow"); // flach r*4+k
     for (uint8_t r = 0; r < cfg::MAX_RELAIS; ++r) {
       Relais &rl = relais[r];
       if (r < en.size()) rl.enabled = en[r];
@@ -1606,7 +1634,7 @@ static void handle_relais_post(uint8_t sn, const HttpRequest &req) {
 
 static std::string build_network_html(const Session *session) {
   const wiz_NetInfo net_info = current_net_info();
-  std::string html = "<!DOCTYPE html><html lang=\"de\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + html_escape(site_title) + " - Network</title><style>html,body{margin:0}body{box-sizing:border-box;font-family:'Segoe UI',sans-serif;background:#121212;color:#e0e0e0;min-height:100vh;padding:108px 24px 24px}" + page_header_css() + "h1{color:#4dabf7}.card{background:#1e1e1e;padding:24px;max-width:560px;border:1px solid #2d2d2d}.card+.card{margin-top:16px}.net-row,.form-row{display:flex;gap:12px;margin-bottom:10px;align-items:center}.net-label,.form-row label{width:120px;color:#9e9e9e;white-space:nowrap}.net-value{font-family:monospace;color:#e6edf3;word-break:break-word}.form-row input{flex:1;background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:8px;font-family:monospace}.actions{margin:0 0 16px}.actions button{margin:0}button{padding:10px 14px;background:#1a3a5c;color:#4dabf7;border:1px solid #1e5a9e;font-weight:700}.save{background:#1b4332;color:#51cf66;border-color:#2d6a4f}.ok{color:#51cf66}.err{color:#ff6b6b}</style></head><body>" + page_header_html(session, true) + "<h1>Network</h1><div class=\"actions\"><button onclick=\"location.href='/config'\">Zurueck</button><button class=\"save\" onclick=\"saveNetwork()\">Speichern</button></div><div id=\"msg\"></div><div class=\"card\"><div class=\"net-row\"><div class=\"net-label\">Mode</div><div class=\"net-value\">" + network_mode_text(net_info) + "</div></div><div class=\"net-row\"><div class=\"net-label\">MAC</div><div class=\"net-value\">" + format_mac(net_info.mac) + "</div></div><div class=\"net-row\"><div class=\"net-label\">IP</div><div class=\"net-value\">" + format_ipv4(net_info.ip) + "</div></div><div class=\"net-row\"><div class=\"net-label\">Subnet Mask</div><div class=\"net-value\">" + format_ipv4(net_info.sn) + "</div></div><div class=\"net-row\"><div class=\"net-label\">Gateway</div><div class=\"net-value\">" + format_ipv4(net_info.gw) + "</div></div><div class=\"net-row\"><div class=\"net-label\">DNS</div><div class=\"net-value\">" + format_ipv4(net_info.dns) + "</div></div></div><div class=\"card\"><h2 style=\"color:#4dabf7;margin:0 0 16px\">Static</h2><div class=\"form-row\"><label>IP</label><input id=\"static-ip\" value=\"" + format_ipv4(static_ip.data()) + "\" inputmode=\"numeric\"></div><div class=\"form-row\"><label>Subnet Mask</label><input id=\"static-sn\" value=\"" + format_ipv4(static_sn.data()) + "\" inputmode=\"numeric\"></div><div class=\"form-row\"><label>Gateway</label><input id=\"static-gw\" value=\"" + format_ipv4(static_gw.data()) + "\" inputmode=\"numeric\"></div></div><script>const conn=document.getElementById('conn');const msg=document.getElementById('msg');let lastSseActivity=0;let lastConnectAttempt=0;let es=null;let reconnectTimer=0;function markConn(ok){conn.textContent=ok?'Verbunden':'Getrennt';conn.className=ok?'ok':'err'}function noteSseActivity(){lastSseActivity=Date.now();markConn(true)}function scheduleReconnect(delay=1000){if(reconnectTimer)return;reconnectTimer=setTimeout(()=>{reconnectTimer=0;connectEvents()},delay)}function forceReconnect(){if(es){es.close();es=null}scheduleReconnect(0)}function connectEvents(){if(es)es.close();lastConnectAttempt=Date.now();es=new EventSource('/events');es.onopen=()=>{noteSseActivity()};es.onerror=()=>{markConn(false);if(es){es.close();es=null}scheduleReconnect()};es.addEventListener('ping',()=>{noteSseActivity()});es.onmessage=()=>{noteSseActivity()}}connectEvents();window.addEventListener('pagehide',()=>{if(es)es.close()});setInterval(()=>{const now=Date.now();const activeLink=lastSseActivity&&now-lastSseActivity<2500;markConn(!!activeLink);if(!activeLink&&now-lastConnectAttempt>=2500&&!reconnectTimer)forceReconnect()},1000);function saveNetwork(){fetch('/network',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ip:document.getElementById('static-ip').value,subnet:document.getElementById('static-sn').value,gateway:document.getElementById('static-gw').value})}).then(r=>r.json().then(d=>({ok:r.ok,d}))).then(x=>{if(!x.ok||!x.d.ok)throw new Error(x.d.error||'Fehler');msg.textContent='Gespeichert';msg.className='ok';setTimeout(()=>{msg.textContent='';msg.className=''},2000)}).catch(e=>{msg.textContent=e.message||'Fehler';msg.className='err'})}</script></body></html>";
+  std::string html = "<!DOCTYPE html><html lang=\"de\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + html_escape(site_title) + " - Network</title><style>html,body{margin:0}body{box-sizing:border-box;font-family:'Segoe UI',sans-serif;background:#121212;color:#e0e0e0;min-height:100vh;padding:108px 24px 24px}" + page_header_css() + "h1{color:#4dabf7}.card{background:#1e1e1e;padding:24px;max-width:560px;border:1px solid #2d2d2d}.card+.card{margin-top:16px}.net-row,.form-row{display:flex;gap:12px;margin-bottom:10px;align-items:center}.net-label,.form-row label{width:120px;color:#9e9e9e;white-space:nowrap}.net-value{font-family:monospace;color:#e6edf3;word-break:break-word}.form-row input{flex:1;background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:8px;font-family:monospace}.actions{margin:0 0 16px}.actions button{margin:0}button{padding:10px 14px;background:#1a3a5c;color:#4dabf7;border:1px solid #1e5a9e;font-weight:700}.save{background:#1b4332;color:#51cf66;border-color:#2d6a4f}.ok{color:#51cf66}.err{color:#ff6b6b}#msg{min-height:1.8em;margin:8px 0;display:flex;align-items:center}</style></head><body>" + page_header_html(session, true) + "<h1>Network</h1><div class=\"actions\"><button onclick=\"location.href='/config'\">Zurueck</button><button class=\"save\" onclick=\"saveNetwork()\">Speichern</button></div><div id=\"msg\"></div><div class=\"card\"><div class=\"net-row\"><div class=\"net-label\">Mode</div><div class=\"net-value\">" + network_mode_text(net_info) + "</div></div><div class=\"net-row\"><div class=\"net-label\">MAC</div><div class=\"net-value\">" + format_mac(net_info.mac) + "</div></div><div class=\"net-row\"><div class=\"net-label\">IP</div><div class=\"net-value\">" + format_ipv4(net_info.ip) + "</div></div><div class=\"net-row\"><div class=\"net-label\">Subnet Mask</div><div class=\"net-value\">" + format_ipv4(net_info.sn) + "</div></div><div class=\"net-row\"><div class=\"net-label\">Gateway</div><div class=\"net-value\">" + format_ipv4(net_info.gw) + "</div></div><div class=\"net-row\"><div class=\"net-label\">DNS</div><div class=\"net-value\">" + format_ipv4(net_info.dns) + "</div></div></div><div class=\"card\"><h2 style=\"color:#4dabf7;margin:0 0 16px\">Static</h2><div class=\"form-row\"><label>IP</label><input id=\"static-ip\" value=\"" + format_ipv4(static_ip.data()) + "\" inputmode=\"numeric\"></div><div class=\"form-row\"><label>Subnet Mask</label><input id=\"static-sn\" value=\"" + format_ipv4(static_sn.data()) + "\" inputmode=\"numeric\"></div><div class=\"form-row\"><label>Gateway</label><input id=\"static-gw\" value=\"" + format_ipv4(static_gw.data()) + "\" inputmode=\"numeric\"></div></div><script>const conn=document.getElementById('conn');const msg=document.getElementById('msg');let lastSseActivity=0;let lastConnectAttempt=0;let es=null;let reconnectTimer=0;function markConn(ok){conn.textContent=ok?'Verbunden':'Getrennt';conn.className=ok?'ok':'err'}function noteSseActivity(){lastSseActivity=Date.now();markConn(true)}function scheduleReconnect(delay=1000){if(reconnectTimer)return;reconnectTimer=setTimeout(()=>{reconnectTimer=0;connectEvents()},delay)}function forceReconnect(){if(es){es.close();es=null}scheduleReconnect(0)}function connectEvents(){if(es)es.close();lastConnectAttempt=Date.now();es=new EventSource('/events');es.onopen=()=>{noteSseActivity()};es.onerror=()=>{markConn(false);if(es){es.close();es=null}scheduleReconnect()};es.addEventListener('ping',()=>{noteSseActivity()});es.onmessage=()=>{noteSseActivity()}}connectEvents();window.addEventListener('pagehide',()=>{if(es)es.close()});setInterval(()=>{const now=Date.now();const activeLink=lastSseActivity&&now-lastSseActivity<2500;markConn(!!activeLink);if(!activeLink&&now-lastConnectAttempt>=2500&&!reconnectTimer)forceReconnect()},1000);function saveNetwork(){fetch('/network',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ip:document.getElementById('static-ip').value,subnet:document.getElementById('static-sn').value,gateway:document.getElementById('static-gw').value})}).then(r=>r.json().then(d=>({ok:r.ok,d}))).then(x=>{if(!x.ok||!x.d.ok)throw new Error(x.d.error||'Fehler');msg.textContent='Gespeichert';msg.className='ok';setTimeout(()=>{msg.textContent='';msg.className=''},2000)}).catch(e=>{msg.textContent=e.message||'Fehler';msg.className='err'})}</script></body></html>";
   return html;
 }
 
@@ -1877,12 +1905,47 @@ static void keepalive_sse() {
 
 // Ausgaenge-Seite: definiert die logischen Buttons (Aktiv, Name, Relais-Eingang).
 static void handle_config_post(uint8_t sn, const HttpRequest &req) {
+  const std::vector<bool> en = json_bool_list(req.body, "btn_enabled");
+  const std::vector<std::string> names = json_string_list(req.body, "btn_names", 32);
+  const std::vector<int> rels = json_int_list(req.body, "btn_relais");
+  const std::vector<int> ins = json_int_list(req.body, "btn_input");
+
+  // --- Konsistenzpruefung gegen die (aktuelle) Relais-Konfiguration ---
+  std::string err, warn;
+  std::array<int, cfg::MAX_RELAIS * cfg::MAX_OUTPUTS> btn_by;  // (r*4+k) -> Button-Index
+  btn_by.fill(-1);
+  for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
+    if (b >= en.size() || !en[b]) continue;
+    const int r = b < rels.size() ? rels[b] : -1;
+    if (r < 0 || r >= cfg::MAX_RELAIS) { err += "Button " + std::to_string(b + 1) + ": kein Relais zugeordnet. "; continue; }
+    const Relais &rl = relais[r];
+    if (!rl.enabled) { err += "Button " + std::to_string(b + 1) + ": Relais " + std::to_string(r + 1) + " ist nicht aktiv. "; continue; }
+    if (!rl.valid)   { err += "Button " + std::to_string(b + 1) + ": Relais " + std::to_string(r + 1) + " hat keine gueltige GPIO-Zuordnung. "; continue; }
+    const int k = b < ins.size() ? ins[b] : 0;
+    if (k < 0 || k >= outputs_count(rl)) { err += "Button " + std::to_string(b + 1) + ": Eingang " + std::to_string(k + 1) + " existiert bei Relais " + std::to_string(r + 1) + " nicht. "; continue; }
+    const int key = r * cfg::MAX_OUTPUTS + k;
+    if (btn_by[key] >= 0)
+      err += "Button " + std::to_string(b + 1) + " und Button " + std::to_string(btn_by[key] + 1) + " steuern denselben Relais-Eingang. ";
+    else
+      btn_by[key] = b;
+  }
+  // Warnung: Mehrfach-Relais nicht vollstaendig mit Buttons belegt
+  for (uint8_t r = 0; r < cfg::MAX_RELAIS; ++r) {
+    const Relais &rl = relais[r];
+    if (!rl.enabled || !rl.valid) continue;
+    const uint8_t n = outputs_count(rl);
+    if (n <= 1) continue;
+    uint8_t cnt = 0;
+    for (uint8_t k = 0; k < n; ++k) if (btn_by[r * cfg::MAX_OUTPUTS + k] >= 0) cnt++;
+    if (cnt < n) warn += "Relais " + std::to_string(r + 1) + ": nur " + std::to_string(cnt) + " von " + std::to_string(n) + " Eingaengen mit Button belegt. ";
+  }
+  if (!err.empty()) {
+    send_response(sn, "200 OK", "application/json", "{\"ok\":false,\"error\":\"" + json_escape(err) + "\"}");
+    return;
+  }
+
   {
     StateLock lock;
-    const std::vector<bool> en = json_bool_list(req.body, "btn_enabled");
-    const std::vector<std::string> names = json_string_list(req.body, "btn_names", 32);
-    const std::vector<int> rels = json_int_list(req.body, "btn_relais");
-    const std::vector<int> ins = json_int_list(req.body, "btn_input");
     for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
       Button &bt = buttons[b];
       if (b < en.size()) bt.enabled = en[b];
@@ -1905,7 +1968,10 @@ static void handle_config_post(uint8_t sn, const HttpRequest &req) {
   save_config();
   broadcast_state();
   esp_link_display_dirty = true;
-  send_response(sn, "200 OK", "application/json", "{\"ok\":true}");
+  if (!warn.empty())
+    send_response(sn, "200 OK", "application/json", "{\"ok\":true,\"warning\":\"" + json_escape(warn) + "\"}");
+  else
+    send_response(sn, "200 OK", "application/json", "{\"ok\":true}");
 }
 
 static void handle_network_post(uint8_t sn, const HttpRequest &req) {
@@ -2019,7 +2085,7 @@ static std::string build_scenes_html(const Session *session) {
   }
   std::string html = "<!DOCTYPE html><html lang=\"de\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + html_escape(site_title) + " - Szenen</title><style>html,body{margin:0}body{box-sizing:border-box;font-family:'Segoe UI',sans-serif;background:#121212;color:#e0e0e0;min-height:100vh;padding:108px 24px 24px}" + page_header_css() +
       "h1{color:#4dabf7}.card{background:#1e1e1e;padding:24px;max-width:760px;border:1px solid #2d2d2d}.actions{margin:0 0 16px}.actions button{margin:0}button{padding:10px 14px;background:#1a3a5c;color:#4dabf7;border:1px solid #1e5a9e;font-weight:700}.save{background:#1b4332;color:#51cf66;border-color:#2d6a4f}.danger{background:#3d1515;color:#ff6b6b;border-color:#7a2020}.ok{color:#51cf66}.err{color:#ff6b6b}"
-      ".mode-row{display:flex;align-items:center;gap:10px;margin-bottom:16px;font-weight:700;color:#9e9e9e}.scene{border:1px solid #2d2d2d;background:#181818;padding:12px;margin-bottom:8px}.scene.collapsed{padding:8px 12px}.scene.collapsed .cells{display:none}.scene.collapsed .scene-head{margin-bottom:0}.caret{flex:none;background:none;border:0;color:#4dabf7;font-size:1rem;cursor:pointer;padding:0 6px;margin:0;line-height:1}.scene-head{display:flex;gap:12px;align-items:center;margin-bottom:10px;flex-wrap:wrap}.scene-head .s-num{flex:none;display:inline-flex;align-items:center;justify-content:center;min-width:26px;height:26px;padding:0 6px;border-radius:13px;background:#1a3a5c;color:#4dabf7;border:1px solid #1e5a9e;font-weight:700;font-size:.85rem}.scene-head .en{display:flex;align-items:center;gap:6px;color:#9e9e9e;white-space:nowrap}.s-name{flex:1;min-width:160px;background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:8px}.cells{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}.cell{display:flex;flex-direction:column;gap:3px;font-size:.75rem;color:#9e9e9e}.cell select{background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:6px}</style></head><body>" +
+      "#msg{min-height:1.8em;margin:8px 0;display:flex;align-items:center}.mode-row{display:flex;align-items:center;gap:10px;margin-bottom:16px;font-weight:700;color:#9e9e9e}.scene{border:1px solid #2d2d2d;background:#181818;padding:12px;margin-bottom:8px}.scene.collapsed{padding:8px 12px}.scene.collapsed .cells{display:none}.scene.collapsed .scene-head{margin-bottom:0}.caret{flex:none;background:none;border:0;color:#4dabf7;font-size:1rem;cursor:pointer;padding:0 6px;margin:0;line-height:1}.scene-head{display:flex;gap:12px;align-items:center;margin-bottom:10px;flex-wrap:wrap}.scene-head .s-num{flex:none;display:inline-flex;align-items:center;justify-content:center;min-width:26px;height:26px;padding:0 6px;border-radius:13px;background:#1a3a5c;color:#4dabf7;border:1px solid #1e5a9e;font-weight:700;font-size:.85rem}.scene-head .en{display:flex;align-items:center;gap:6px;color:#9e9e9e;white-space:nowrap}.s-name{flex:1;min-width:160px;background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:8px}.cells{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}.cell{display:flex;flex-direction:column;gap:3px;font-size:.75rem;color:#9e9e9e}.cell select{background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:6px}</style></head><body>" +
       page_header_html(session, true) +
       "<h1>Szenen</h1>" + page_nav_actions("scenes") + "<div id=\"msg\"></div><div class=\"card\">"
       "<div class=\"mode-row\"><input type=\"checkbox\" id=\"mode\"" + std::string(scene_mode ? " checked" : "") + "><label for=\"mode\">Szenen-Modus aktiv (Buttons aktivieren Szenen statt Relais)</label></div>" + rows + "</div>"
@@ -2029,31 +2095,74 @@ static std::string build_scenes_html(const Session *session) {
       "document.querySelectorAll('.s-en').forEach(e=>{body['s'+e.dataset.s+'_en']=e.checked});"
       "document.querySelectorAll('.s-name').forEach(e=>{body['s'+e.dataset.s+'_name']=e.value.replace(/[\"\\\\]/g,'')});"
       "for(let s=0;s<" + std::to_string(cfg::SCENE_COUNT) + ";s++){let act='';for(let r=0;r<" + std::to_string(cfg::MAX_BUTTONS) + ";r++){const sel=document.querySelector('select[data-s=\"'+s+'\"][data-r=\"'+r+'\"]');act+=sel?sel.value:'x'}body['s'+s+'_act']=act}"
-      "fetch('/scenes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json()).then(d=>{const m=document.getElementById('msg');m.textContent=d.ok?'Gespeichert':'Fehler';m.className=d.ok?'ok':'err';if(d.ok)setTimeout(()=>{m.textContent='';m.className=''},2000)}).catch(()=>{document.getElementById('msg').textContent='Fehler'})}"
+      "fetch('/scenes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json()).then(d=>{const m=document.getElementById('msg');if(d.ok===false){m.textContent=d.error||'Fehler';m.className='err';return}if(d.warning){m.textContent='Gespeichert \\u2013 Hinweis: '+d.warning;m.className='err'}else{m.textContent='Gespeichert';m.className='ok';setTimeout(()=>{m.textContent='';m.className=''},2000)}}).catch(()=>{document.getElementById('msg').textContent='Fehler'})}"
       "</script></body></html>";
   return html;
 }
 
 static void handle_scenes_post(uint8_t sn, const HttpRequest &req) {
+  // Eingaben zunaechst in temporaere Struktur lesen und pruefen (kein Lock noetig).
+  const bool new_mode = json_bool_value(req.body, "mode", scene_mode);
+  bool sc_en[cfg::SCENE_COUNT];
+  std::string sc_name[cfg::SCENE_COUNT];
+  uint8_t sc_act[cfg::SCENE_COUNT][cfg::MAX_BUTTONS];
+  for (uint8_t s = 0; s < cfg::SCENE_COUNT; ++s) {
+    const std::string p = "s" + std::to_string(s) + "_";
+    sc_en[s] = json_bool_value(req.body, p + "en", scenes[s].enabled);
+    sc_name[s] = json_string_value(req.body, p + "name").substr(0, 32);
+    const std::string act = json_string_value(req.body, p + "act");
+    for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
+      const char c = b < act.size() ? act[b] : 'x';
+      sc_act[s][b] = (c == '1') ? 1 : (c == '0') ? 0 : 2;
+    }
+  }
+
+  // --- Konsistenzpruefung ---
+  std::string err, warn;
+  for (uint8_t s = 0; s < cfg::SCENE_COUNT; ++s) {
+    if (!sc_en[s]) continue;
+    std::array<uint8_t, cfg::MAX_RELAIS> on_per_relais;
+    on_per_relais.fill(0);
+    bool any = false;
+    for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
+      if (sc_act[s][b] == 2) continue;  // unveraendert
+      any = true;
+      const Button &bt = buttons[b];
+      if (!bt.enabled || bt.relais_idx < 0 || bt.relais_idx >= cfg::MAX_RELAIS || !relais[bt.relais_idx].valid || !relais[bt.relais_idx].enabled) {
+        warn += "Szene " + std::to_string(s + 1) + ": Button " + std::to_string(b + 1) + " ist nicht aktiv/zugeordnet. ";
+        continue;
+      }
+      const Relais &rl = relais[bt.relais_idx];
+      // Mehrfach-Relais: mehrere "Ein" auf dieselbe Gruppe schliessen sich aus.
+      if (rl.type != RelayType::Simple && sc_act[s][b] == 1) {
+        if (++on_per_relais[bt.relais_idx] == 2)
+          err += "Szene " + std::to_string(s + 1) + ": mehrere Eingaenge von Relais " + std::to_string(bt.relais_idx + 1) + " auf 'Ein' (nur einer moeglich). ";
+      }
+    }
+    if (!any) warn += "Szene " + std::to_string(s + 1) + ": keine Aktion. ";
+  }
+  if (!err.empty()) {
+    send_response(sn, "200 OK", "application/json", "{\"ok\":false,\"error\":\"" + json_escape(err) + "\"}");
+    return;
+  }
+
   {
     StateLock lock;
-    scene_mode = json_bool_value(req.body, "mode", scene_mode);
+    scene_mode = new_mode;
     for (uint8_t s = 0; s < cfg::SCENE_COUNT; ++s) {
-      const std::string p = "s" + std::to_string(s) + "_";
-      scenes[s].enabled = json_bool_value(req.body, p + "en", scenes[s].enabled);
-      scenes[s].name = json_string_value(req.body, p + "name").substr(0, 32);
-      const std::string act = json_string_value(req.body, p + "act");
-      for (uint8_t r = 0; r < cfg::MAX_BUTTONS && r < act.size(); ++r) {
-        const char c = act[r];
-        scenes[s].action[r] = (c == '1') ? 1 : (c == '0') ? 0 : 2;
-      }
+      scenes[s].enabled = sc_en[s];
+      scenes[s].name = sc_name[s];
+      for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) scenes[s].action[b] = sc_act[s][b];
     }
     if (active_scene >= 0 && (active_scene >= cfg::SCENE_COUNT || !scenes[active_scene].enabled)) active_scene = -1;
   }
   save_config();
   broadcast_state();
   esp_link_display_dirty = true;
-  send_response(sn, "200 OK", "application/json", "{\"ok\":true}");
+  if (!warn.empty())
+    send_response(sn, "200 OK", "application/json", "{\"ok\":true,\"warning\":\"" + json_escape(warn) + "\"}");
+  else
+    send_response(sn, "200 OK", "application/json", "{\"ok\":true}");
 }
 
 static void handle_http(uint8_t sn, const HttpRequest &req) {
