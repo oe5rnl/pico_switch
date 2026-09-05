@@ -1562,6 +1562,74 @@ static std::string build_relais_html(const Session *session) {
 }
 
 // Relais-Seite POST: uebernimmt Relaisdefinitionen, loest GPIOs auf und wendet sie an.
+// Vollstaendige Konsistenzpruefung der GESAMTEN Konfiguration (Relais + Buttons + Szenen),
+// unabhaengig davon, welche Seite gerade gespeichert wird. Liefert alle gefundenen Probleme
+// als Text (leer = konsistent). Wird nach jedem Speichern aufgerufen -> auch Tabs, die nicht
+// aktiv sind, werden geprueft. Nur core1/config-Felder -> kein Lock noetig.
+static std::string check_all_consistency() {
+  std::string m;
+  // --- Relais: Ausgangs-GPIOs gueltig und eindeutig ---
+  std::array<int, 8> used_by;
+  used_by.fill(-1);
+  for (uint8_t r = 0; r < cfg::MAX_RELAIS; ++r) {
+    const Relais &rl = relais[r];
+    if (!rl.enabled) continue;
+    const uint8_t n = outputs_count(rl);
+    for (uint8_t k = 0; k < n; ++k) {
+      const int pi = output_pool_index(rl.out_gpio[k]);
+      if (pi < 0) { m += "Relais " + std::to_string(r + 1) + ": Ausgang " + std::to_string(k + 1) + " ohne gueltige GPIO. "; continue; }
+      if (used_by[pi] >= 0) m += "GPIO GP" + std::to_string(rl.out_gpio[k]) + " doppelt belegt (Relais " + std::to_string(used_by[pi] + 1) + " und Relais " + std::to_string(r + 1) + "). ";
+      else used_by[pi] = r;
+    }
+  }
+  // --- Buttons: Zuordnung gueltig, eindeutig ---
+  std::array<int, cfg::MAX_RELAIS * cfg::MAX_OUTPUTS> btn_by;
+  btn_by.fill(-1);
+  for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
+    const Button &bt = buttons[b];
+    if (!bt.enabled) continue;
+    if (bt.relais_idx < 0 || bt.relais_idx >= cfg::MAX_RELAIS) { m += "Button " + std::to_string(b + 1) + ": kein Relais zugeordnet. "; continue; }
+    const Relais &rl = relais[bt.relais_idx];
+    if (!rl.enabled || !rl.valid) { m += "Button " + std::to_string(b + 1) + ": Relais " + std::to_string(bt.relais_idx + 1) + " inaktiv/ungueltig. "; continue; }
+    if (bt.input_idx >= outputs_count(rl)) { m += "Button " + std::to_string(b + 1) + ": Eingang " + std::to_string(bt.input_idx + 1) + " existiert bei Relais " + std::to_string(bt.relais_idx + 1) + " nicht. "; continue; }
+    const int key = bt.relais_idx * cfg::MAX_OUTPUTS + bt.input_idx;
+    if (btn_by[key] >= 0) m += "Button " + std::to_string(b + 1) + " und Button " + std::to_string(btn_by[key] + 1) + " steuern denselben Relais-Eingang. ";
+    else btn_by[key] = b;
+  }
+  // --- Relais ohne Button / Mehrfach-Relais teilbelegt ---
+  for (uint8_t r = 0; r < cfg::MAX_RELAIS; ++r) {
+    const Relais &rl = relais[r];
+    if (!rl.enabled || !rl.valid) continue;
+    const uint8_t n = outputs_count(rl);
+    uint8_t cnt = 0;
+    for (uint8_t k = 0; k < n; ++k) if (btn_by[r * cfg::MAX_OUTPUTS + k] >= 0) cnt++;
+    if (cnt == 0) m += "Relais " + std::to_string(r + 1) + " hat keinen zugeordneten Button. ";
+    else if (cnt < n) m += "Relais " + std::to_string(r + 1) + ": nur " + std::to_string(cnt) + " von " + std::to_string(n) + " Eingaengen mit Button belegt. ";
+  }
+  // --- Szenen: Buttons aktiv, Mehrfach-Relais-Konflikt, leere Szene ---
+  for (uint8_t s = 0; s < cfg::SCENE_COUNT; ++s) {
+    if (!scenes[s].enabled) continue;
+    std::array<uint8_t, cfg::MAX_RELAIS> on_per_relais;
+    on_per_relais.fill(0);
+    bool any = false;
+    for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
+      if (scenes[s].action[b] == 2) continue;
+      any = true;
+      const Button &bt = buttons[b];
+      if (!bt.enabled || bt.relais_idx < 0 || bt.relais_idx >= cfg::MAX_RELAIS || !relais[bt.relais_idx].enabled || !relais[bt.relais_idx].valid) {
+        m += "Szene " + std::to_string(s + 1) + " nutzt Button " + std::to_string(b + 1) + ", der inaktiv/nicht zugeordnet ist. ";
+        continue;
+      }
+      if (relais[bt.relais_idx].type != RelayType::Simple && scenes[s].action[b] == 1) {
+        if (++on_per_relais[bt.relais_idx] == 2)
+          m += "Szene " + std::to_string(s + 1) + ": mehrere Eingaenge von Relais " + std::to_string(bt.relais_idx + 1) + " auf 'Ein' (nur einer moeglich). ";
+      }
+    }
+    if (!any) m += "Szene " + std::to_string(s + 1) + ": keine Aktion. ";
+  }
+  return m;
+}
+
 static void handle_relais_post(uint8_t sn, const HttpRequest &req) {
   const std::vector<bool> en = json_bool_list(req.body, "r_enabled");
   const std::vector<int> type = json_int_list(req.body, "r_type");
@@ -1629,7 +1697,11 @@ static void handle_relais_post(uint8_t sn, const HttpRequest &req) {
   save_config();
   broadcast_state();
   esp_link_display_dirty = true;
-  send_response(sn, "200 OK", "application/json", "{\"ok\":true}");
+  const std::string warn = check_all_consistency();  // gesamte Konfig pruefen (auch inaktive Tabs)
+  if (!warn.empty())
+    send_response(sn, "200 OK", "application/json", "{\"ok\":true,\"warning\":\"" + json_escape(warn) + "\"}");
+  else
+    send_response(sn, "200 OK", "application/json", "{\"ok\":true}");
 }
 
 static std::string build_network_html(const Session *session) {
@@ -1910,8 +1982,8 @@ static void handle_config_post(uint8_t sn, const HttpRequest &req) {
   const std::vector<int> rels = json_int_list(req.body, "btn_relais");
   const std::vector<int> ins = json_int_list(req.body, "btn_input");
 
-  // --- Konsistenzpruefung gegen die (aktuelle) Relais-Konfiguration ---
-  std::string err, warn;
+  // --- Blockierende Pruefung der eingehenden Button-Daten (aktiver Tab) ---
+  std::string err;
   std::array<int, cfg::MAX_RELAIS * cfg::MAX_OUTPUTS> btn_by;  // (r*4+k) -> Button-Index
   btn_by.fill(-1);
   for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
@@ -1928,16 +2000,6 @@ static void handle_config_post(uint8_t sn, const HttpRequest &req) {
       err += "Button " + std::to_string(b + 1) + " und Button " + std::to_string(btn_by[key] + 1) + " steuern denselben Relais-Eingang. ";
     else
       btn_by[key] = b;
-  }
-  // Warnung: Mehrfach-Relais nicht vollstaendig mit Buttons belegt
-  for (uint8_t r = 0; r < cfg::MAX_RELAIS; ++r) {
-    const Relais &rl = relais[r];
-    if (!rl.enabled || !rl.valid) continue;
-    const uint8_t n = outputs_count(rl);
-    if (n <= 1) continue;
-    uint8_t cnt = 0;
-    for (uint8_t k = 0; k < n; ++k) if (btn_by[r * cfg::MAX_OUTPUTS + k] >= 0) cnt++;
-    if (cnt < n) warn += "Relais " + std::to_string(r + 1) + ": nur " + std::to_string(cnt) + " von " + std::to_string(n) + " Eingaengen mit Button belegt. ";
   }
   if (!err.empty()) {
     send_response(sn, "200 OK", "application/json", "{\"ok\":false,\"error\":\"" + json_escape(err) + "\"}");
@@ -1968,6 +2030,7 @@ static void handle_config_post(uint8_t sn, const HttpRequest &req) {
   save_config();
   broadcast_state();
   esp_link_display_dirty = true;
+  const std::string warn = check_all_consistency();  // gesamte Konfig pruefen (auch inaktive Tabs)
   if (!warn.empty())
     send_response(sn, "200 OK", "application/json", "{\"ok\":true,\"warning\":\"" + json_escape(warn) + "\"}");
   else
@@ -2117,29 +2180,21 @@ static void handle_scenes_post(uint8_t sn, const HttpRequest &req) {
     }
   }
 
-  // --- Konsistenzpruefung ---
-  std::string err, warn;
+  // --- Blockierende Pruefung der eingehenden Szenen-Daten (aktiver Tab):
+  //     Mehrfach-Relais darf nicht mehrere "Ein" in derselben Szene haben. ---
+  std::string err;
   for (uint8_t s = 0; s < cfg::SCENE_COUNT; ++s) {
     if (!sc_en[s]) continue;
     std::array<uint8_t, cfg::MAX_RELAIS> on_per_relais;
     on_per_relais.fill(0);
-    bool any = false;
     for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
-      if (sc_act[s][b] == 2) continue;  // unveraendert
-      any = true;
+      if (sc_act[s][b] != 1) continue;
       const Button &bt = buttons[b];
-      if (!bt.enabled || bt.relais_idx < 0 || bt.relais_idx >= cfg::MAX_RELAIS || !relais[bt.relais_idx].valid || !relais[bt.relais_idx].enabled) {
-        warn += "Szene " + std::to_string(s + 1) + ": Button " + std::to_string(b + 1) + " ist nicht aktiv/zugeordnet. ";
-        continue;
-      }
+      if (!bt.enabled || bt.relais_idx < 0 || bt.relais_idx >= cfg::MAX_RELAIS) continue;
       const Relais &rl = relais[bt.relais_idx];
-      // Mehrfach-Relais: mehrere "Ein" auf dieselbe Gruppe schliessen sich aus.
-      if (rl.type != RelayType::Simple && sc_act[s][b] == 1) {
-        if (++on_per_relais[bt.relais_idx] == 2)
-          err += "Szene " + std::to_string(s + 1) + ": mehrere Eingaenge von Relais " + std::to_string(bt.relais_idx + 1) + " auf 'Ein' (nur einer moeglich). ";
-      }
+      if (rl.type != RelayType::Simple && ++on_per_relais[bt.relais_idx] == 2)
+        err += "Szene " + std::to_string(s + 1) + ": mehrere Eingaenge von Relais " + std::to_string(bt.relais_idx + 1) + " auf 'Ein' (nur einer moeglich). ";
     }
-    if (!any) warn += "Szene " + std::to_string(s + 1) + ": keine Aktion. ";
   }
   if (!err.empty()) {
     send_response(sn, "200 OK", "application/json", "{\"ok\":false,\"error\":\"" + json_escape(err) + "\"}");
@@ -2159,6 +2214,7 @@ static void handle_scenes_post(uint8_t sn, const HttpRequest &req) {
   save_config();
   broadcast_state();
   esp_link_display_dirty = true;
+  const std::string warn = check_all_consistency();  // gesamte Konfig pruefen (auch inaktive Tabs)
   if (!warn.empty())
     send_response(sn, "200 OK", "application/json", "{\"ok\":true,\"warning\":\"" + json_escape(warn) + "\"}");
   else

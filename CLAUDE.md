@@ -107,11 +107,15 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
 
 - **Auth**: Session-Token (Cookie), Rollen, optionaler `public_access`, API-Keys.
 - **SSE**: `/events` verteilt Zustandsänderungen live; Keepalive-`ping` alle 1 s.
-- **Konsistenzprüfung beim Speichern** (`/config`, `/relais`, `/scenes`): die POST-Handler
-  validieren vor dem Übernehmen. Harte Fehler → `{"ok":false,"error":"…"}` (nicht
-  gespeichert), unkritische Punkte → `{"ok":true,"warning":"…"}`. Geprüft u. a.:
-  GPIO-Doppelbelegung/fehlende Ausgangs-GPIO (Relais), Button→Relais/Eingang gültig +
-  keine Doppelbelegung (Buttons), Mehrfach-Relais-Konflikt „mehrere Ein" (Szenen).
+- **Konsistenzprüfung beim Speichern** (`/config`, `/relais`, `/scenes`): Zuerst blockiert
+  eine seitenspezifische Prüfung der eingehenden Daten ungültige Eingaben des aktiven Tabs
+  → `{"ok":false,"error":"…"}` (nichts wird übernommen). Nach dem Übernehmen läuft **bei
+  jedem Speichern** `check_all_consistency()` über die **gesamte** Konfiguration (Relais +
+  Buttons + Szenen, also auch nicht aktive Tabs) und meldet alle verbleibenden Probleme als
+  `{"ok":true,"warning":"…"}`. Geprüft u. a.: GPIO-Doppelbelegung/fehlende Ausgangs-GPIO,
+  Button→Relais/Eingang gültig + keine Doppelbelegung, aktives Relais ohne Button /
+  Mehrfach-Relais teilbelegt, Szene nutzt inaktiven Button, Mehrfach-Relais-Konflikt
+  „mehrere Ein", leere Szene.
 
 ### 2.5 Szenen-Modus
 

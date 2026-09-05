@@ -177,9 +177,13 @@ Beim **Speichern** prüft der Pico die Konfiguration auf Konsistenz:
   Relais mit doppelt belegter Ausgangs-GPIO oder ohne GPIO; Button ohne/auf inaktives
   Relais oder auf einen nicht existierenden Eingang; zwei Buttons auf demselben
   Relais-Eingang; Szene mit mehreren „Ein" auf dasselbe Mehrfach-Relais.
-- **Hinweise** (ebenfalls hervorgehoben) werden gespeichert, aber gemeldet. Beispiele:
-  ein Mehrfach-Relais, dessen Eingänge nicht vollständig mit Buttons belegt sind; eine
-  Szene, die einen inaktiven Button anspricht oder keine Aktion enthält.
+- **Hinweise** (ebenfalls hervorgehoben) werden gespeichert, aber gemeldet. Sie melden
+  insbesondere **nicht erfüllte Abhängigkeiten** zwischen Buttons, Relais und Szenen:
+  - aktives Relais ohne zugeordneten Button; Mehrfach-Relais nur teilweise mit Buttons belegt;
+  - beim Speichern der **Relais**-Seite: ein Button zeigt nun auf ein inaktiv gewordenes
+    Relais oder auf einen durch den neuen Typ entfallenen Eingang;
+  - beim Speichern der **Buttons**- oder **Szenen**-Seite: eine Szene nutzt einen Button,
+    der jetzt inaktiv/nicht zugeordnet ist; eine Szene ohne Aktion.
 
 Die horizontale Menüleiste ist auf allen Admin-Seiten gleich (Übersicht, Speichern,
 Buttons, Relais, Szenen, Benutzer/API, Network, Abmelden); die aktuelle Seite ist rot
