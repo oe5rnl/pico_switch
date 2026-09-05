@@ -40,16 +40,27 @@ Wichtige Hinweise:
 
 ### esp32/
 
-Stellt das lokale Touch-Terminal bereit (8 Tasten, ON/OFF-Statusfarben, Szenenansicht, Rückmeldefehleranzeige).
+Stellt das lokale Touch-Terminal bereit (bis zu 8 Tasten, ON/OFF-Statusfarben, Szenenansicht, Rückmeldefehleranzeige).
+- Es werden **nur aktivierte Buttons** (bzw. im Szenenmodus nur aktivierte Szenen) angezeigt und lückenlos gepackt; bei 1–3 sichtbaren Elementen werden sie **vergrößert** dargestellt.
+- Unten links steht die IP-/Link-Statuszeile, **unten rechts der aktive Modus** („Buttons" bzw. „Szenen").
 - Bei jeder Bedienung sendet das ESP32-Terminal einen zeilenbasierten Befehl (`SWn:ON`/`SWn:OFF` bzw. `SCENEn:GO`) über UART an den Pico.
 - Im Szenenmodus erscheint auf der aktiven Szenen-Taste ein roter Punkt, sobald ein Relais direkt (nicht über eine Szene) geschaltet wurde. Der Punkt erlischt bei der nächsten Szenenaktivierung.
 
 ### pico/switch_server/
 
 Enthält die eigentliche Relais- und Netzwerk-Firmware und implementiert:
-- Einzelrelaissteuerung und Szenen
-- Eingangsmodus per Compilerschalter `INPUT_MODE` (Default `taster`): entweder physische **Rückmeldeüberwachung** (`rueckm`) oder entprellte **Taster** an GP10–28 (`taster`), die je ein Relais toggeln (parallel zu Web/Display; im Szenenmodus lösen sie Szenen aus)
-- Rückmeldeüberwachung: Prüfung, ob Relais geschaltet haben
+- **Relais/Button-Modell:** Bis zu 8 logische **Buttons** (Web + Display) verweisen auf
+  Eingänge von bis zu 8 **Relais**. Relaistypen **1-fach** (1 Ausgang), **2-fach** und
+  **4-fach** (mehrere Ausgänge, gegenseitig ausschließend). Je Relais optional **Impuls**
+  (nur kurzer Puls statt Dauer-EIN) mit einstellbarer Impulszeit.
+- **Ausgangs-GPIO frei wählbar** je Relais-Ausgang (Pool GP2–9); der zugehörige
+  Eingangs-GPIO ergibt sich fest daraus (GP2↔GP10 … GP9↔GP28).
+- **Eingangsrolle je Ausgang zur Laufzeit** wählbar (kein Compilerschalter mehr):
+  **Rückmeldung** (Schaltkontrolle) **oder** **Taster** (entprellt, löst denselben
+  Relais-Eingang aus wie der logische Button) — einstellbar auf der Seite **Relais**.
+- Szenen (Aktion je Button; 1-fach = Umschalten, 2-/4-fach = Ausgang wählen)
+- **Impuls-Sicherheit:** ein Hardware-Timer begrenzt Impuls-Ausgänge hart auf die
+  Impulszeit (auch beim Einschalten), unabhängig von der Hauptschleife.
 - HTTP-UI-Webserver
 - REST-API-Server mit API-Token
 - Persistenz der Einstellungen
@@ -191,7 +202,6 @@ BOOTSEL-Modus versetzt, geflasht und automatisch neu gestartet.
 cd pico
 ./upload.sh                    # Build + USB-Flash OHNE BOOTSEL-Taste (Default)
 ./upload.sh -c                 # Clean-Build erzwingen
-./upload.sh -m rueckm          # Eingangsmodus Rückmeldung (Default: taster)
 ./upload.sh -w                 # EINMAL-Werksreset: Persistenz beim Boot löschen (s. u.)
 ./upload.sh -d                 # Klassisch: UF2 auf BOOTSEL-Laufwerk kopieren
 ./upload.sh /pfad/zum/RP2350   # UF2 auf ein bestimmtes BOOTSEL-Laufwerk kopieren
@@ -227,7 +237,6 @@ cd pico
 
 - **Schritt 2 nicht vergessen:** Solange die `-w`-Firmware installiert ist,
   löscht jeder Boot erneut. Erst die normale Firmware macht die Persistenz dauerhaft.
-- `-w` bei Bedarf mit `-m taster|rueckm` kombinieren (Default `taster`).
 - Nach dem Reset gelten die Werkseinstellungen inkl. Login `admin` / `sw234`.
 
 Zum Flashen über ein **BOOTSEL-Laufwerk** (`-d`/`--drive` oder UPLOAD_DIR-Argument)

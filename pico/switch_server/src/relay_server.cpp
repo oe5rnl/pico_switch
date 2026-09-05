@@ -1832,17 +1832,27 @@ static void configure_inputs() {
 }
 
 // Initialisiert alle Ausgangs-Pins als Ausgang (Idle) und gibt den gelatchten Zustand aus.
+// Boot: den gespeicherten Zustand ausgeben. Ein Ausgang, der auf EIN steht, gibt bei
+// Impuls-Konfiguration einen Impuls aus (Latch bleibt EIN, service_impulses beendet ihn),
+// sonst wird er statisch gehalten; AUS-Ausgaenge bleiben im Idle.
 static void apply_all_outputs() {
   for (uint8_t pin : cfg::OUTPUT_PINS) {
     gpio_init(pin);
     gpio_set_dir(pin, GPIO_OUT);
   }
+  const uint32_t now = millis32();
   for (uint8_t r = 0; r < cfg::MAX_RELAIS; ++r) {
     Relais &rl = relais[r];
     if (!rl.valid || !rl.enabled) continue;
     for (uint8_t k = 0; k < outputs_count(rl); ++k) {
       const bool on = (rl.active_output == static_cast<uint8_t>(k + 1));
-      apply_output(r, k, on);
+      if (on && rl.impulse) {  // beim Einschalten einen Impuls ausgeben, Latch bleibt EIN
+        apply_output(r, k, true);
+        rl.imp_active[k] = true;
+        rl.imp_deadline[k] = now + rl.impulse_ms;
+      } else {
+        apply_output(r, k, on);
+      }
     }
   }
 }
@@ -2696,6 +2706,32 @@ static void net_core_main() {
   }
 }
 
+// ---- Sicherheits-Backstop fuer Impuls-Ausgaenge -------------------------
+// Ein Hardware-Timer (core0-IRQ, alle 5 ms) erzwingt, dass ein Impuls-Ausgang
+// NIEMALS laenger als seine Impulszeit aktiv bleibt - auch wenn die Hauptschleife
+// (service_impulses) haengt oder verzoegert ist. Laeuft im IRQ-Kontext: KEIN Mutex,
+// nur GPIO schreiben und einfache Felder lesen (int8/bool/uint32 -> atomare Zugriffe).
+// Ergaenzt service_impulses (normale Logik/Feedback); das doppelte Idle-Setzen ist
+// idempotent. Einzige unvermeidbare Luecke: waehrend eines Flash-Writes sind core0-
+// IRQs kurz gesperrt (Lockout-Victim) - dort kann der Off-Zeitpunkt minimal spaeter liegen.
+static repeating_timer_t g_impulse_safety_timer;
+
+static bool impulse_safety_timer_cb(repeating_timer_t *) {
+  const uint32_t now = millis32();
+  for (uint8_t r = 0; r < cfg::MAX_RELAIS; ++r) {
+    Relais &rl = relais[r];
+    if (!rl.valid || !rl.enabled) continue;
+    const uint8_t n = outputs_count(rl);
+    for (uint8_t k = 0; k < n; ++k) {
+      if (rl.imp_active[k] && rl.out_gpio[k] >= 0 &&
+          static_cast<int32_t>(now - rl.imp_deadline[k]) >= 0) {
+        gpio_put(static_cast<uint>(rl.out_gpio[k]), output_gpio_value(rl, false));
+      }
+    }
+  }
+  return true;  // Timer weiterlaufen lassen
+}
+
 int main() {
   esp_link::init();  // UART sofort auf Idle-High treiben, bevor der ESP booten kann
   stdio_init_all();
@@ -2716,6 +2752,8 @@ int main() {
     printf("Persistenz-Datenstruktur geaendert oder ungueltig, Flash-Daten werden nicht ueberschrieben.\n");
   }
   apply_all_outputs();
+  // Sicherheits-Timer sofort starten -> begrenzt auch den Boot-Impuls hart auf die Impulszeit.
+  add_repeating_timer_ms(-5, impulse_safety_timer_cb, nullptr, &g_impulse_safety_timer);
   g_use_dhcp = dhcp_requested_at_boot();  // Netzwerkmodus frueh bestimmen (fuer IP-Anzeige am ESP)
   // Ab hier stehen Titel/Namen/Zustaende fest: ESP-Display sofort bedienen (vor DHCP)
   esp_link::flush_rx();

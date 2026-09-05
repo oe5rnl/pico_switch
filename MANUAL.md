@@ -2,12 +2,23 @@
 
 ## 1. Überblick
 
-`pico_switch` steuert bis zu acht Relais. Die Bedienung ist auf zwei Arten möglich:
+`pico_switch` steuert bis zu acht Relais auf bis zu acht GPIO-Ausgängen. Die Bedienung ist auf zwei Arten möglich:
 
 - über die Webseite mit einem PC, Tablet oder Smartphone im selben Netzwerk,
 - direkt am ESP32-CYD-Touchdisplay.
 
-Änderungen werden zwischen Webseite, Pico und Display automatisch übertragen. Die zuletzt gespeicherten Relaiszustände und Einstellungen bleiben nach einem Neustart erhalten.
+**Grundkonzept:** Die sichtbaren Bedienelemente sind **Buttons** (1–8). Jeder Button
+verweist auf einen **Eingang eines Relais** – er steuert also nicht mehr direkt eine
+GPIO. **Relais** (1–8) werden getrennt konfiguriert und haben einen Typ:
+
+- **1-fach:** 1 Button/Eingang → 1 Ausgang.
+- **2-fach / 4-fach:** 2 bzw. 4 Buttons/Eingänge → 2 bzw. 4 Ausgänge, die sich
+  **gegenseitig ausschließen** (immer genau ein Ausgang aktiv, wie ein Stufenschalter).
+
+Jeder Relaisausgang statisch (fix aus oder ein) oder als **Impuls** arbeiten (kurzer Schaltpuls statt Dauer-EIN, Impulszeit
+einstellbar). Änderungen werden zwischen Webseite, Pico und Display automatisch
+übertragen. Die zuletzt gespeicherten Zustände und Einstellungen bleiben nach einem
+Neustart erhalten.
 
 > **Achtung:** Abhängig von der angeschlossenen Anlage können Relais Netzspannung oder andere gefährliche Lasten schalten. Änderungen an Verkabelung, Ausgangspolarität und Rückmeldeeingängen dürfen nur von fachkundigen Personen durchgeführt werden. Das System arbeitet mit 3,3 V an den Ein- und Ausgängen des ESP32 und des Pico. Diese Spannung darf nicht überschritten werden.
 
@@ -58,14 +69,18 @@ So ist jederzeit erkennbar, ob gerade jemand anderes das System bedienen könnte
 
 
 
-### 3.2 Relais direkt schalten
+### 3.2 Buttons direkt schalten
 
-Im Relaismodus zeigt die Hauptseite acht Relaisfelder mit Name, Nummer und Zustand.
+Im Button-Modus zeigt die Hauptseite die **aktivierten Buttons** mit Name, Nummer und
+Zustand. Nur Buttons, die auf der Seite **Buttons** aktiviert sind, werden angezeigt.
 
-- **ON** und eine grüne Markierung bedeuten: Relais eingeschaltet.
-- **OFF** und eine graue Markierung bedeuten: Relais ausgeschaltet.
-- Ein Klick auf ein Relaisfeld schaltet zwischen **ON** und **OFF** um.
-- Eine rote Markierung bedeutet, dass die physische Rückmeldung nicht innerhalb der eingestellten Zeit zum Schaltzustand passt.
+- **ON** und eine grüne Markierung bedeuten: der zugeordnete Relais-Eingang ist aktiv.
+- **OFF** und eine graue Markierung bedeuten: nicht aktiv.
+- Ein Klick auf ein Feld schaltet den Button um. Bei einem 1-fach-Relais wird umgeschaltet
+  (ein/aus); bei einem 2-/4-fach-Relais wird der zugehörige Ausgang angewählt und der
+  vorher aktive Ausgang desselben Relais dadurch abgewählt.
+- Eine rote Markierung bedeutet, dass die physische Rückmeldung nicht innerhalb der
+  eingestellten Zeit zum Schaltzustand passt.
 
 Die Anzeige wird bei Änderungen durch andere Benutzer oder durch das Touchdisplay automatisch aktualisiert.
 
@@ -74,10 +89,13 @@ Die Anzeige wird bei Änderungen durch andere Benutzer oder durch das Touchdispl
 Eine Szene schaltet mehrere Relais mit einem einzigen Befehl. Wenn der Szenenmodus aktiviert ist, erscheint auf der Hauptseite des Webfensters zusätzlich der Bereich **Szenen**.
 
 - Ein Klick auf eine Szene führt die hinterlegten Aktionen aus.
-- Grün kennzeichnet die zuletzt aktivierte Szene.
+- Grün kennzeichnet die zuletzt aktivierte Szene, deren Zustand noch erfüllt ist.
 - Rot kennzeichnet einen Rückmeldefehler bei der Ausführung dieser Szene.
-- Ein kleiner roter Punkt oben rechts auf der aktiven Szene weist darauf hin, dass mindestens ein Relais nach der Aktivierung der Szene direkt (nicht über eine Szene) geschaltet wurde. Die angezeigten Relaiszustände weichen damit vom definierten Szenenzustand ab. Der Punkt erlischt, sobald eine Szene erneut aktiviert wird.
-- Der darunterliegende Bereich **Relais** bleibt auf der Webseite direkt bedienbar.
+- Ein kleiner roter Punkt oben rechts auf der aktiven Szene weist darauf hin, dass mindestens ein Relais nach der Aktivierung der Szene direkt (nicht über eine Szene) geschaltet wurde. Die angezeigten Zustände weichen damit vom definierten Szenenzustand ab. Der Punkt erlischt, sobald eine Szene erneut aktiviert wird.
+- **1-fach-Relais werden in Szenen umgeschaltet** (Toggle wie ein Tastendruck): jede
+  Ausführung der Szene wechselt den Zustand. Bei 2-/4-fach-Relais wählt die Szene den
+  konfigurierten Ausgang an.
+- Der darunterliegende Bereich **Buttons** bleibt auf der Webseite direkt bedienbar.
 
 Eine Szene ist kein dauerhaft verriegelter Betriebszustand. Relais können nach dem Aufruf einer Szene weiterhin einzeln geschaltet werden.
 
@@ -101,18 +119,22 @@ Während das Display noch keine Verbindung zum Pico hat, steht in der Titelzeile
 
 Kehrt die Anzeige später zu `wait for init` zurück, besteht keine Kommunikation mit dem Pico. In diesem Fall Stromversorgung und UART-Verbindung zwischen Display und Pico prüfen.
 
-Die untere Zeile zeigt die IP-Adresse des Webservers. Bei einem verlorenen LAN-Link wird dort eine entsprechende Fehlermeldung angezeigt.
+Die untere Zeile zeigt links die IP-Adresse des Webservers (bei verlorenem LAN-Link
+eine entsprechende Fehlermeldung) und **unten rechts den aktiven Modus** („Buttons"
+oder „Szenen").
 
-### 4.2 Relaismodus
+### 4.2 Button-Modus
 
-Im Relaismodus werden alle acht Kanäle in einem 4-mal-2-Raster angezeigt.
+Im Button-Modus zeigt das Display die **aktivierten Buttons**. Die Größe passt sich
+dynamisch an: bei 1–3 sichtbaren Buttons werden diese vergrößert dargestellt, ab 4
+Buttons im 4-mal-2-Raster. Deaktivierte Buttons werden nicht angezeigt.
 
-- Grün: Relais ist **ON**.
-- Grau: Relais ist **OFF**.
+- Grün: Button ist **ON** (zugeordneter Relais-Eingang aktiv).
+- Grau: Button ist **OFF**.
 - Rot: Die konfigurierte physische Rückmeldung passt nicht zum Sollzustand.
-- Antippen: Relaiszustand wird umgeschaltet.
+- Antippen: schaltet den Button (1-fach: umschalten; 2-/4-fach: Ausgang anwählen).
 
-Der Relaisname und der Zustand stehen direkt auf der Taste. Ein im Namen verwendetes Zeichen `|` erzeugt auf dem Display einen Zeilenumbruch.
+Der Buttonname und der Zustand stehen direkt auf der Taste. Ein im Namen verwendetes Zeichen `|` erzeugt auf dem Display einen Zeilenumbruch.
 
 ### 4.3 Szenenmodus
 
@@ -126,48 +148,74 @@ Im Szenenmodus zeigt das Display nur aktivierte Szenen. Je nach Anzahl werden bi
 
 Im Szenenmodus können einzelne Relais nicht am Display geschaltet werden. Die direkte Relaisbedienung bleibt jedoch auf der Webseite verfügbar. Auch in Szenennamen erzeugt `|` einen Zeilenumbruch auf dem Display.
 
-### 4.4 Externe Taster (nur im Taster-Modus)
+### 4.4 Externe Taster
 
-Ist die Firmware im **Taster-Modus** erstellt (Compilerschalter `INPUT_MODE=taster`, Standard), dienen die acht Eingänge GP10–GP28 als Anschluss für mechanische Taster. Ein Taster wird zwischen dem jeweiligen Eingang und GND angeschlossen; die interne Pull-Up-Beschaltung ist fest aktiv.
+Jeder Relais-Ausgang hat einen fest zugeordneten **Eingang-GPIO** (siehe Abschnitt 6.1).
+Dessen Funktion wird **zur Laufzeit** je Ausgang auf der Seite **Relais** gewählt:
+**Rückmeldung** oder **Taster**. Ein als **Taster**
+konfigurierter Eingang wird zwischen dem GPIO und GND angeschlossen; die interne
+Pull-Up-Beschaltung ist dann aktiv (gedrückt = LOW).
 
-- Jeder Taster ist einem Relais fest zugeordnet (Taster an GP10 → Relais 1 usw.).
-- Ein Tastendruck **schaltet um** (Toggle): einmal drücken schaltet ein, erneutes Drücken schaltet aus.
-- Ist der **Szenenmodus** aktiv, löst der Taster stattdessen die zugehörige Szene aus (Taster 1 → Szene 1 usw.), sofern diese aktiviert ist.
-- Die Taster arbeiten **parallel** zu Webseite und Touchdisplay; alle Bedienwege bleiben gleichzeitig nutzbar.
-- Die Eingänge sind **entprellt**. Die gemeinsame **Taster-Entprellzeit** wird auf der Konfigurationsseite eingestellt (Standard 25 ms, zulässig 5 bis 2000 ms).
-- Auf der Konfigurationsseite zeigt eine kleine **LED** je Kanal, ob der zugehörige Taster gerade gedrückt ist (zur Verdrahtungskontrolle).
+- Ein Tastendruck löst **denselben Relais-Eingang** aus wie der zugehörige logische
+  Button: bei 1-fach **umschalten** (Toggle), bei 2-/4-fach den betreffenden Ausgang anwählen.
+- Ist der **Szenenmodus** aktiv, wirkt sich der Tastendruck über den Button auf die
+  Relais aus wie im Web/Display.
+- Die Taster arbeiten **parallel** zu Webseite und Touchdisplay.
+- Die Eingänge sind **entprellt**. Die gemeinsame **Taster-Entprellzeit** wird auf der
+  Seite **Relais** eingestellt (Standard 25 ms, zulässig 5 bis 2000 ms).
 
-> **Hinweis:** In diesem Modus steht die physische Relais-Rückmeldung (Abschnitt 5.2) nicht zur Verfügung, da dieselben Eingänge als Taster verwendet werden. Wird die Rückmeldung benötigt, muss die Firmware im Modus `rueckm` erstellt werden.
+> **Hinweis:** Pro Ausgang kann der Eingang **entweder** Rückmeldung **oder** Taster sein
+> (derselbe physische Pin). Beides gleichzeitig für denselben Ausgang ist nicht möglich.
 
 ## 5. Konfiguration durch Administratoren
 
 Die administrativen Seiten sind über **Konfig** erreichbar und erfordern ein Konto mit der Rolle `admin`. Änderungen werden erst mit **Speichern** übernommen.
 
-### 5.1 Allgemeine Konfiguration
+Die horizontale Menüleiste ist auf allen Admin-Seiten gleich (Übersicht, Speichern,
+Buttons, Relais, Szenen, Benutzer/API, Network, Abmelden); die aktuelle Seite ist rot
+hervorgehoben.
 
-Auf der Seite **Konfiguration** können folgende Werte geändert werden:
+### 5.1 Buttons (Seite „Buttons")
+
+Auf der Seite **Buttons** werden die allgemeinen Werte und die Bedien-Buttons festgelegt:
 
 - **Titel:** Name in der Kopfzeile der Webseite und auf dem Display.
 - **Überschrift:** Text über den Bedienelementen der Hauptseite.
-- **Relaisnamen:** Bezeichnungen der acht Kanäle.
 - **Öffentlicher Zugriff:** erlaubt die Bedienung ohne Anmeldung.
-- **Low aktiv:** kehrt für das betreffende Relais die elektrische Ausgangslogik um.
-- **Rückmeldung:** aktiviert die Prüfung des zugehörigen physischen Rückmeldeeingangs.
-- **Rückm. LOW:** legt fest, dass der aktive Rückmeldepegel LOW ist.
-- **Rückmeldezeit:** Zeit, innerhalb der die physische Rückmeldung nach einem Schaltvorgang eintreffen muss; zulässig sind 10 bis 10000 ms.
+- Je **Button** (1–8):
+  - **aktiv:** blendet den Button auf Webseite und Display ein/aus.
+  - **Name:** Beschriftung des Buttons. Wird im Button-Mode auf dem Button angezeigt.
+  - **Relais-Eingang:** Auswahl, welches Relais (und bei 2-/4-fach welcher Eingang)
+    dieser Button ansteuert. Die Auswahl bietet nur aktivierte, gültige Relais an.
 
-> **Eingangsmodus (Taster oder Rückmeldung):** Die Funktion der acht Eingänge
-> (GP10–GP28) wird beim Erstellen der Firmware festgelegt (Compilerschalter
-> `INPUT_MODE`, Standard: Taster). Im **Taster-Modus** entfallen die Felder
-> **Rückmeldung** und **Rückm. LOW**; jede Relaiszeile zeigt stattdessen den Text
-> **„Taster GPxx"** und eine kleine **LED**, die aufleuchtet, solange der Taster
-> gedrückt ist. Statt **Rückmeldezeit** erscheint dann **Taster-Entprellzeit**
-> (gemeinsam für alle Taster, Standard 25 ms, zulässig 5 bis 2000 ms). Näheres
-> siehe Abschnitt 4.4.
+### 5.2 Relais (Seite „Relais")
 
-> **Wichtig:** Eine Änderung von **Low aktiv** wird sofort auf den Relaisausgang angewendet. Vor dem Speichern muss sichergestellt sein, dass die Einstellung zur angeschlossenen Relaisplatine passt.
+Auf der Seite **Relais** werden die physischen Relais definiert (einklappbare Blöcke,
+Kopfzeile bleibt sichtbar). Je Relais (1–8):
 
-### 5.2 Rückmeldung der Relais
+- **aktiv:** Relais verwenden.
+- **Typ:** **1-fach** (1 Ausgang), **2-fach** oder **4-fach** (mehrere, gegenseitig
+  ausschließende Ausgänge).
+- **Name**, **Low aktiv** (kehrt die elektrische Ausgangslogik um),
+  **Impuls** (kurzer Schaltpuls statt Dauer-EIN) und **Impulszeit** (100–2000 ms, Standard 300).
+- Je Ausgang:
+  - **Ausgangs-GPIO:** frei wählbar aus dem Pool GP2–GP9 (jeder Pin nur einmal).
+  - **Eingang (abgeleitet):** der zum Ausgang gehörende Eingang-GPIO wird automatisch
+    angezeigt (feste Paarung GP2↔GP10 … GP9↔GP28).
+  - **Eingangsrolle:** **keine**, **Rückmeldung** oder **Taster** (siehe 4.4 und 5.3).
+  - **LOW:** Rückmeldepegel für EIN ist LOW.
+- Global: **Rückmeldezeit** (10–10000 ms) und **Taster-Entprellzeit** (5–2000 ms).
+
+> **Impuls-Verhalten:** Steht ein Ausgang auf EIN, gibt er bei aktiviertem **Impuls**
+> beim Einschalten des Geräts **einen Impuls** aus (danach Leitung idle, Anzeige bleibt
+> EIN); ohne Impuls wird er statisch gehalten. Ein Sicherheits-Timer stellt sicher, dass
+> ein Impuls-Ausgang **nie länger als die Impulszeit** aktiv ist.
+
+> **Wichtig:** Eine Änderung von **Low aktiv** oder der GPIO-Zuordnung wird beim Speichern
+> sofort auf die Ausgänge angewendet. Vorher sicherstellen, dass die Einstellung zur
+> angeschlossenen Relaisplatine passt.
+
+### 5.3 Rückmeldung der Relais
 
 Die Rückmeldung prüft, ob ein Relais den vom System ausgegebenen Zustand physisch tatsächlich erreicht hat. Dazu besitzt jeder Kanal einen eigenen Rückmeldeeingang (siehe Abschnitt 6.1), an den zum Beispiel ein Hilfskontakt des Relais oder eine Stromerkennung angeschlossen wird.
 
@@ -185,28 +233,30 @@ Wichtige Eigenschaften:
 
 - Die Rückmeldung ändert **nie** den Sollzustand, sondern meldet nur eine Abweichung.
 - Ein Fehler ist **selbstheilend**: Erreicht das Relais den Sollzustand später doch noch, erlischt der Fehler automatisch.
-- Aktivierung (**Rückmeldung**) und Polarität (**Rückm. LOW**) gelten je Kanal, die **Rückmeldezeit** gilt gemeinsam für alle Kanäle (10 bis 10000 ms).
+- Die Eingangsrolle **Rückmeldung** und die Polarität **LOW** werden je Relais-Ausgang eingestellt (Seite **Relais**); die **Rückmeldezeit** gilt gemeinsam für alle (10 bis 10000 ms).
 - Ein Rückmeldefehler wird auf der Webseite und am Display rot angezeigt. Wird der Fehler durch eine Szene ausgelöst, erscheint zusätzlich die betreffende Szene als fehlerhaft.
 
 > **Hinweis:** Ein Rückmeldefehler bedeutet, dass der tatsächliche Zustand der Anlage vom angezeigten Sollzustand abweichen kann. In diesem Fall die betroffene Last, Verkabelung und Rückmeldepolarität prüfen.
 
-### 5.3 Szenen konfigurieren
+### 5.4 Szenen konfigurieren
 
-Über **Konfig** > **Szenen** stehen acht Szenen zur Verfügung.
-
-Für jede Szene können Administratoren:
+Über **Szenen** stehen acht Szenen zur Verfügung (einklappbare Blöcke, Kopfzeile bleibt
+sichtbar). Für jede Szene können Administratoren:
 
 1. die Szene mit **aktiv** ein- oder ausblenden,
-2. einen Namen vergeben,
-3. für jedes Relais eine Aktion auswählen:
+2. einen Namen vergeben der am Szenenbutton angezeigt wird,
+3. je **Button** eine Aktion auswählen:
 
-   - **Ein:** Relais einschalten,
-   - **Aus:** Relais ausschalten,
-   - **—:** Relais unverändert lassen.
+   - Für Buttons eines **1-fach-Relais**: **Umschalten** (Toggle bei jeder Ausführung)
+     oder **—** (unverändert lassen).
+   - Für Buttons eines **2-/4-fach-Relais**: **Ein** (diesen Ausgang anwählen),
+     **Aus** (bedeutungslos, wird übersprungen) oder **—** (unverändert).
 
-Die Option **Szenen-Modus aktiv** bestimmt, ob die Haupttasten Szenen oder direkt die Relais bedienen. Nach Änderungen **Speichern** wählen. Deaktivierte Szenen erscheinen weder im Szenenbereich der Webseite noch auf dem Display.
+Die Option **Szenen-Modus aktiv** bestimmt, ob die Haupttasten Szenen oder direkt die
+Buttons bedienen. Nach Änderungen **Speichern** wählen. Deaktivierte Szenen erscheinen
+weder im Szenenbereich der Webseite noch auf dem Display.
 
-### 5.4 Benutzer und API-Keys
+### 5.5 Benutzer und API-Keys
 
 Unter **Konfig** > **Benutzer/API** können Administratoren:
 
@@ -220,9 +270,9 @@ Ein neues Passwort muss mindestens vier Zeichen lang sein. Der eigene Benutzer k
 
 API-Keys sind für externe Programme vorgesehen und sollten wie Passwörter geschützt werden. Benutzer tragen einen API-Key im HTTP-Header `X-API-Key` ein.
 
-### 5.5 Netzwerk
+### 5.6 Netzwerk
 
-Unter **Konfig** > **Network** werden der aktuelle Modus, die MAC-Adresse, IP-Adresse, Subnetzmaske und das Gateway angezeigt. Dort lassen sich außerdem die gespeicherte statische IP-Adresse, Subnetzmaske und das Gateway ändern.
+Unter **Network** werden der aktuelle Modus, die MAC-Adresse, IP-Adresse, Subnetzmaske und das Gateway angezeigt. Dort lassen sich außerdem die gespeicherte statische IP-Adresse, Subnetzmaske und das Gateway ändern.
 
 Ob beim Start DHCP oder die statische Konfiguration verwendet wird, bestimmt der Hardwareeingang GP15 am Pico:
 
@@ -239,8 +289,8 @@ Gespeicherte Netzwerkwerte werden erst beim nächsten Start im statischen Modus 
 |---|---|
 | GP0 | UART0 TX zum Display (Pico -> ESP32 GPIO3 RX) |
 | GP1 | UART0 RX vom Display (Pico <- ESP32 GPIO1 TX) |
-| GP2 bis GP9 | Relaisausgänge 1 bis 8 |
-| GP10, GP11, GP12, GP13, GP14, GP26, GP27, GP28 | Rückmeldeeingänge ODER Taster-Eingänge für Relais 1 bis 8 (je nach Compilerschalter `INPUT_MODE`) |
+| GP2 bis GP9 | Ausgangs-GPIO-Pool (je Relais-Ausgang frei wählbar) |
+| GP10, GP11, GP12, GP13, GP14, GP26, GP27, GP28 | Eingangs-Pool: fest gepaart zum Ausgang (GP2↔GP10 … GP9↔GP28), je Ausgang **Rückmeldung ODER Taster** (Laufzeit, Seite **Relais**) |
 | GP15 | Netzwerkmodus-Bootstrap: HIGH/offen = DHCP, LOW = statische IP |
 | GP16 bis GP22 | Reserviert für W6300 (QSPI-LAN-Interface) |
 

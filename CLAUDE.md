@@ -171,6 +171,11 @@ auf die **zwei Kerne** des RP2350 aufgeteilt:
   `service_impulses()` (beendet abgelaufene, parallel laufende Ausgangs-Impulse),
   Versand des IP-Status. Fasst **niemals** W6300 oder Flash an → kann nicht
   blockieren → Relais reagieren sofort.
+- **Impuls-Sicherheits-Backstop:** ein Hardware-Timer (core0-IRQ, alle 5 ms,
+  `impulse_safety_timer_cb`) erzwingt zusätzlich, dass ein Impuls-Ausgang **niemals
+  länger als seine Impulszeit** aktiv bleibt — auch beim Power-On (Boot-Impuls) und
+  selbst wenn die Hauptschleife hängt. Läuft im IRQ-Kontext (kein Mutex, nur GPIO/Idle),
+  ergänzt `service_impulses()`.
 - **core1** (`net_core_main()`): `init_network()`, `service_socket()×8`,
   `keepalive_sse()`, `service_network_link()` (LAN-Reconnect) und die Flash-/SSE-
   Aufträge von core0.
