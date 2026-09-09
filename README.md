@@ -61,6 +61,11 @@ Enthält die eigentliche Relais- und Netzwerk-Firmware und implementiert:
 - Szenen (Aktion je Button; 1-fach = Umschalten, 2-/4-fach = Ausgang wählen)
 - **Impuls-Sicherheit:** ein Hardware-Timer begrenzt Impuls-Ausgänge hart auf die
   Impulszeit (auch beim Einschalten), unabhängig von der Hauptschleife.
+- **Konsistenzprüfung beim Speichern:** jede Speicherung (Buttons/Relais/Szenen) prüft die
+  **gesamte** Konfiguration (auch nicht aktive Tabs). Harte Fehler (z. B. doppelt belegte
+  Ausgangs-GPIO, Button auf inaktives Relais/ungültigen Eingang, Mehrfach-„Ein" auf dasselbe
+  Mehrfach-Relais) verhindern das Speichern; nicht erfüllte Abhängigkeiten (z. B. aktives
+  Relais ohne Button, Szene nutzt inaktiven Button) werden als Hinweis gemeldet.
 - HTTP-UI-Webserver
 - REST-API-Server mit API-Token
 - Persistenz der Einstellungen
