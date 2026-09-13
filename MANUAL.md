@@ -151,7 +151,27 @@ Im Szenenmodus zeigt das Display nur aktivierte Szenen. Je nach Anzahl werden bi
 
 Im Szenenmodus können einzelne Relais nicht am Display geschaltet werden. Die direkte Relaisbedienung bleibt jedoch auf der Webseite verfügbar. Auch in Szenennamen erzeugt `|` einen Zeilenumbruch auf dem Display.
 
-### 4.4 Externe Taster
+### 4.4 Umschalten zwischen Szenen- und Button-Modus
+
+Ob die Haupttasten **Relais schalten** (Button-Modus) oder **Szenen auslösen**
+(Szenenmodus), bestimmt ein einziger systemweiter Schalter. Er kann an zwei Stellen
+umgeschaltet werden:
+
+- **Am Display**: Tippen auf die Modusanzeige unten rechts („Buttons"/„Szenen").
+- **Auf der Webseite**: Checkbox **Szenen-Modus aktiv** auf der Seite **Szenen**
+  (nur Administratoren; siehe Abschnitt 5.4).
+
+Die Umschaltung wirkt **sofort und überall gleichzeitig**, ohne dass eine Seite neu
+geladen werden muss:
+
+- Das **Display** baut die Kacheln unmittelbar zwischen Buttons und Szenen um.
+- Jede offene **Web-Hauptseite** stellt automatisch auf das passende Raster um
+  (Button-Ansicht bzw. Szenen- + Relaisansicht).
+- Die **Checkbox** auf der Szenen-Seite folgt dem aktuellen Zustand automatisch.
+
+Der gewählte Modus wird dauerhaft gespeichert und bleibt nach einem Neustart erhalten.
+
+### 4.5 Externe Taster
 
 Jeder Relais-Ausgang hat einen fest zugeordneten **Eingang-GPIO** (siehe Abschnitt 6.1).
 Dessen Funktion wird **zur Laufzeit** je Ausgang auf der Seite **Relais** gewählt:
@@ -271,7 +291,9 @@ sichtbar). Für jede Szene können Administratoren:
 
 Die Option **Szenen-Modus aktiv** bestimmt, ob die Haupttasten Szenen oder direkt die
 Buttons bedienen. Nach Änderungen **Speichern** wählen. Deaktivierte Szenen erscheinen
-weder im Szenenbereich der Webseite noch auf dem Display.
+weder im Szenenbereich der Webseite noch auf dem Display. Die Checkbox spiegelt stets
+den aktuellen Modus wider und aktualisiert sich automatisch, wenn der Modus anderswo
+(z. B. am Display) umgeschaltet wird (siehe Abschnitt 4.4).
 
 ### 5.5 Benutzer und API-Keys
 

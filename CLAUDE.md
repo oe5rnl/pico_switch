@@ -119,7 +119,9 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
 
 ### 2.5 Szenen-Modus
 
-- Umschaltbar per Checkbox auf `/scenes` (Admin). Persistiert als `scene_mode`.
+- Umschaltbar per Checkbox auf `/scenes` (Admin) **oder** per Tap auf die Modusanzeige
+  am ESP-Display (siehe 2.5.1). Persistiert als `scene_mode` (ein einziger globaler
+  Schalter, der das gesamte Systemverhalten bestimmt).
 - Bei aktivem Szenen-Modus steuern die 8 Buttons (Web + ESP-Display) **nicht**
   direkt die Relais, sondern aktivieren je eine Szene.
 - Eine **Szene** hat: `enabled`-Flag, Name und je **Button** eine Aktion:
@@ -133,6 +135,40 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
   entspricht (`scene_state_matches`) — so folgt die Anzeige einem 1-fach-Toggle (nach
   AUS nicht mehr grün).
 - Direkte Button-Steuerung (`/relay/...`) bleibt parallel nutzbar.
+
+### 2.5.1 Umschaltung Szenen-/Button-Modus (Auslöser + Live-Sync)
+
+Der Modus `scene_mode` ist **eine** globale Variable; alle Oberflächen zeigen und
+setzen denselben Wert. Umgeschaltet werden kann er an **drei** Stellen:
+
+1. **`/scenes`-Checkbox** „Szenen-Modus aktiv" (Admin, per POST `/scenes`,
+   `handle_scenes_post`).
+2. **ESP-Display**: Tap auf die Modusanzeige unten rechts → sendet `MODE:TOGGLE`
+   über UART; der Pico verarbeitet es in `esp_link::handle_mode_command()`.
+   `MODE:SCENE`/`MODE:RELAY` setzen den Modus explizit.
+3. Implizit beim Speichern der Szenen-Seite (die Checkbox ist Teil des POST-Bodys).
+
+Nach jeder Umschaltung setzt der Pico (auf welchem Weg auch immer) einheitlich die
+Cross-Core-Flags:
+
+- `g_persist_dirty` → core1 schreibt `scene_mode` in den Flash (bleibt nach Reboot).
+- `g_sse_dirty` → core1 sendet `state_json` (enthält `scene_mode`) per SSE an alle
+  offenen Web-Clients.
+- `esp_link_display_dirty` → core0 sendet die komplette Display-Konfiguration
+  (`MODE:SCENE`/`MODE:RELAY` + Namen/Szenen) zurück ans ESP-Display.
+
+**Live-Synchronisation ohne Reload** (alle drei Oberflächen folgen dem Wechsel sofort):
+
+- **ESP-Display**: `parse_mode_or_scene_line()` verarbeitet `MODE:*`, danach
+  `refresh_all_buttons()` → UI wird zwischen Button- und Szenen-Kacheln umgebaut.
+- **Web-Hauptseite** (`build_index_html`): Das Grid wird komplett clientseitig
+  aufgebaut. `sceneData` (Szenen-JSON) ist **immer** eingebettet. Der zentrale
+  JS-Handler `handleData(d)` (für SSE, `/relay`- und `/scene`-Antworten) erkennt
+  `d.scene_mode !== curMode` und ruft `buildLayout(mode)` → DOM wird live umgebaut
+  (Szenen-Grid + Relais-Grid ↔ nur Button-Grid), ohne Seiten-Reload.
+- **`/scenes`-Seite** (`build_scenes_html`): Der SSE-`onmessage` setzt die
+  Checkbox `#mode` live auf `d.scene_mode` (außer sie ist gerade fokussiert, um eine
+  laufende Bearbeitung nicht zu überschreiben).
 
 ### 2.5 ESP-Link (`namespace esp_link`)
 
