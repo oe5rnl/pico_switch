@@ -200,8 +200,8 @@ struct Relais {
   bool fb_expected[cfg::MAX_OUTPUTS] = {};                 // erwarteter Rueckmeldezustand je Ausgang
   bool fb_pending[cfg::MAX_OUTPUTS] = {};
   bool fb_error[cfg::MAX_OUTPUTS] = {};
-  uint32_t fb_deadline[cfg::MAX_OUTPUTS] = {};
-  int8_t fb_source_scene[cfg::MAX_OUTPUTS] = {-1, -1, -1, -1};
+  uint32_t fb_deadline[cfg::MAX_OUTPUTS] = {};             // Einschwing- bzw. Entprell-Deadline
+  bool fb_confirming[cfg::MAX_OUTPUTS] = {};               // eingeschwungen: Aenderung wird gerade entprellt
   bool btn_raw[cfg::MAX_OUTPUTS] = {};                     // Taster-Entprellung je Ausgang
   bool btn_pressed[cfg::MAX_OUTPUTS] = {};
   uint32_t btn_since[cfg::MAX_OUTPUTS] = {};
@@ -917,25 +917,36 @@ static bool feedback_matches(uint8_t r, uint8_t k) {
   return fb_on == rl.fb_expected[k];
 }
 
+// Eine Szene gilt als fehlerhaft, sobald ein von ihr angesteuerter Rueckmelde-
+// Ausgang einen Fehler meldet -- unabhaengig davon, wer zuletzt geschaltet hat und
+// ob die Szene gerade aktiv ist. Zugehoerig ist ein Ausgang bei 1-fach action != 2
+// (unveraendert), bei 2-/4-fach action == 1 (nur "ein" waehlt einen Ausgang).
 static void update_scene_feedback_errors() {
   scene_feedback_error.fill(false);
-  for (uint8_t r = 0; r < cfg::MAX_RELAIS; ++r) {
-    for (uint8_t k = 0; k < cfg::MAX_OUTPUTS; ++k) {
-      const int8_t scene = relais[r].fb_source_scene[k];
-      if (relais[r].fb_error[k] && scene >= 0 && scene < cfg::SCENE_COUNT) scene_feedback_error[scene] = true;
+  for (uint8_t s = 0; s < cfg::SCENE_COUNT; ++s) {
+    if (!scenes[s].enabled) continue;
+    for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
+      const Button &bt = buttons[b];
+      if (!bt.enabled || bt.relais_idx < 0 || bt.relais_idx >= cfg::MAX_RELAIS) continue;
+      const Relais &rl = relais[bt.relais_idx];
+      if (!rl.valid || !rl.enabled) continue;
+      const uint8_t k = bt.input_idx;
+      if (k >= outputs_count(rl)) continue;
+      const uint8_t a = scenes[s].action[b];
+      const bool referenced = (rl.type == RelayType::Simple) ? (a != 2) : (a == 1);
+      if (referenced && rl.fb_error[k]) { scene_feedback_error[s] = true; break; }
     }
   }
 }
 
-// Startet die Rueckmeldepruefung eines Ausgangs gegen expected_on.
-static void start_feedback_check(uint8_t r, uint8_t k, bool expected_on, int8_t source_scene) {
+// Startet die Einschwing-/Rueckmeldepruefung eines Ausgangs gegen expected_on.
+static void start_feedback_check(uint8_t r, uint8_t k, bool expected_on) {
   Relais &rl = relais[r];
   rl.fb_expected[k] = expected_on;
-  rl.fb_source_scene[k] = source_scene;
   rl.fb_error[k] = false;
+  rl.fb_confirming[k] = false;
   if (rl.in_role[k] != static_cast<uint8_t>(InRole::Feedback) || feedback_matches(r, k)) {
     rl.fb_pending[k] = false;
-    rl.fb_source_scene[k] = -1;
   } else {
     rl.fb_pending[k] = true;
     rl.fb_deadline[k] = millis32() + feedback_timeout_ms;
@@ -944,7 +955,7 @@ static void start_feedback_check(uint8_t r, uint8_t k, bool expected_on, int8_t 
 }
 
 // Setzt Ausgang k statisch oder startet (on && Impuls) einen Impuls. Unter StateLock.
-static void drive_output_locked(uint8_t r, uint8_t k, bool on, int8_t source_scene) {
+static void drive_output_locked(uint8_t r, uint8_t k, bool on) {
   Relais &rl = relais[r];
   if (on && rl.impulse) {
     apply_output(r, k, true);
@@ -952,36 +963,36 @@ static void drive_output_locked(uint8_t r, uint8_t k, bool on, int8_t source_sce
     rl.imp_deadline[k] = millis32() + rl.impulse_ms;
     rl.fb_pending[k] = false;  // waehrend des Impulses keine Rueckmeldepruefung
     rl.fb_error[k] = false;
+    rl.fb_confirming[k] = false;
     rl.fb_expected[k] = true;  // Latch bleibt "ein"
-    rl.fb_source_scene[k] = -1;
     update_scene_feedback_errors();
   } else {
     apply_output(r, k, on);
     rl.imp_active[k] = false;  // laufenden Impuls bei explizitem Setzen abbrechen
-    start_feedback_check(r, k, on, source_scene);
+    start_feedback_check(r, k, on);
   }
 }
 
 // einfach: Ausgang 0 statisch/gepulst auf on setzen; active_output latchen.
-static void relais_set_simple(uint8_t r, bool on, int8_t source_scene) {
+static void relais_set_simple(uint8_t r, bool on) {
   relais[r].active_output = on ? 1 : 0;
-  drive_output_locked(r, 0, on, source_scene);
+  drive_output_locked(r, 0, on);
 }
 
 // 4-fach: Ausgang k anwaehlen (nur diesen schalten, Geschwister nur logisch aus).
 // Rueckmelde-/Impuls-Laufzeit der Geschwister wird zurueckgesetzt (nur der aktive
 // Ausgang wird ueberwacht).
-static void relais_select_quad(uint8_t r, uint8_t k, int8_t source_scene) {
+static void relais_select_quad(uint8_t r, uint8_t k) {
   Relais &rl = relais[r];
   for (uint8_t j = 0; j < outputs_count(rl); ++j) {
     if (j == k) continue;
     rl.imp_active[j] = false;
     rl.fb_pending[j] = false;
     rl.fb_error[j] = false;
-    rl.fb_source_scene[j] = -1;
+    rl.fb_confirming[j] = false;
   }
   rl.active_output = static_cast<uint8_t>(k + 1);
-  drive_output_locked(r, k, true, source_scene);
+  drive_output_locked(r, k, true);
 }
 
 static bool scene_state_matches(uint8_t idx);
@@ -996,15 +1007,15 @@ static void apply_button_locked(uint8_t b, int action) {
   if (k >= outputs_count(rl)) return;
   if (rl.type == RelayType::Simple) {
     const bool on = action == 2 ? (rl.active_output != 1) : (action == 1);
-    relais_set_simple(bt.relais_idx, on, -1);
+    relais_set_simple(bt.relais_idx, on);
   } else {
     const bool currently = (rl.active_output == static_cast<uint8_t>(k + 1));
     const bool on = action == 2 ? !currently : (action == 1);
     if (on) {
-      relais_select_quad(bt.relais_idx, k, -1);
+      relais_select_quad(bt.relais_idx, k);
     } else if (currently) {
       rl.active_output = 0;
-      drive_output_locked(bt.relais_idx, k, false, -1);
+      drive_output_locked(bt.relais_idx, k, false);
     }
   }
 }
@@ -1024,6 +1035,14 @@ static void button_command(uint8_t b, int action) {
 
 static void press_button(uint8_t b) { button_command(b, 2); }
 
+// Laeuft dauernd auf core0: prueft je Rueckmelde-Ausgang (nur der aktive Ausgang)
+// die reale Rueckmeldung gegen den Latch. Zwei Phasen:
+//   1) Einschwingen (fb_pending): nach dem Schalten darf das Relais anziehen; passt es
+//      bis zur Deadline nicht -> Fehler.
+//   2) Eingeschwungen: Dauerueberwachung. Weicht die Rueckmeldung ab (z. B. Relais
+//      faellt durch einen Defekt ab oder schaltet um), wird der Fehler nach einer
+//      kurzen Bestaetigungszeit (Entprellung) gesetzt bzw. wieder geloescht.
+// Waehrend eines laufenden Impulses (imp_active) wird nicht geprueft.
 static bool service_relay_feedback() {
   StateLock lock;
   bool changed = false;
@@ -1035,15 +1054,29 @@ static bool service_relay_feedback() {
       if (rl.in_role[k] != static_cast<uint8_t>(InRole::Feedback)) continue;
       // 2-/4-fach: nur den aktiven Ausgang ueberwachen (Geschwister sind bistabil/unverwaltet).
       if (rl.type != RelayType::Simple && rl.active_output != static_cast<uint8_t>(k + 1)) continue;
-      if (feedback_matches(r, k)) {
-        if (rl.fb_pending[k] || rl.fb_error[k]) changed = true;
-        rl.fb_pending[k] = false;
-        rl.fb_error[k] = false;
-        rl.fb_source_scene[k] = -1;
-      } else if (rl.fb_pending[k] && static_cast<int32_t>(now - rl.fb_deadline[k]) >= 0) {
-        rl.fb_pending[k] = false;
-        rl.fb_error[k] = true;
-        changed = true;
+      if (rl.imp_active[k]) continue;  // waehrend des Impulses keine Pruefung
+      const bool mismatch = !feedback_matches(r, k);
+      if (rl.fb_pending[k]) {  // Phase 1: Einschwingen
+        if (!mismatch) {
+          rl.fb_pending[k] = false;
+          rl.fb_confirming[k] = false;
+          if (rl.fb_error[k]) { rl.fb_error[k] = false; changed = true; }
+        } else if (static_cast<int32_t>(now - rl.fb_deadline[k]) >= 0) {
+          rl.fb_pending[k] = false;
+          rl.fb_confirming[k] = false;
+          if (!rl.fb_error[k]) { rl.fb_error[k] = true; changed = true; }
+        }
+      } else if (mismatch != rl.fb_error[k]) {  // Phase 2: Aenderung entprellen
+        if (!rl.fb_confirming[k]) {
+          rl.fb_confirming[k] = true;
+          rl.fb_deadline[k] = now + feedback_timeout_ms;
+        } else if (static_cast<int32_t>(now - rl.fb_deadline[k]) >= 0) {
+          rl.fb_error[k] = mismatch;
+          rl.fb_confirming[k] = false;
+          changed = true;
+        }
+      } else {  // Phase 2: stabil
+        rl.fb_confirming[k] = false;
       }
     }
   }
@@ -1076,7 +1109,7 @@ static bool service_impulses() {
         rl.imp_active[k] = false;
         apply_output(r, k, false);  // Impuls-GPIO auf Idle, Latch bleibt
         const bool latched_on = (rl.active_output == static_cast<uint8_t>(k + 1));
-        start_feedback_check(r, k, latched_on, -1);
+        start_feedback_check(r, k, latched_on);
         changed = true;
       }
     }
@@ -1105,10 +1138,10 @@ static void activate_scene(uint8_t idx) {
       if (k >= outputs_count(rl)) continue;
       const bool on = (a == 1);
       if (rl.type == RelayType::Simple) {  // Toggle wie ein Tastendruck (Aus/Ein egal)
-        relais_set_simple(bt.relais_idx, rl.active_output != 1, static_cast<int8_t>(idx));
+        relais_set_simple(bt.relais_idx, rl.active_output != 1);
         changed = true;
       } else if (on) {  // 2-/4-fach: nur "ein" waehlt einen Ausgang, "aus" ist bedeutungslos
-        relais_select_quad(bt.relais_idx, k, static_cast<int8_t>(idx));
+        relais_select_quad(bt.relais_idx, k);
         changed = true;
       }
     }
@@ -1145,8 +1178,8 @@ static bool service_tasters() {
         rl.btn_pressed[k] = raw;
         changed = true;
         if (raw) {  // steigende Flanke: gleiche Aktion wie der logische Button
-          if (rl.type == RelayType::Simple) relais_set_simple(r, rl.active_output != 1, -1);
-          else relais_select_quad(r, k, -1);
+          if (rl.type == RelayType::Simple) relais_set_simple(r, rl.active_output != 1);
+          else relais_select_quad(r, k);
           if (scene_mode && active_scene >= 0) scene_dirty = !scene_state_matches(active_scene);
           else active_scene = -1;
           esp_link_state_dirty = true;
@@ -1912,7 +1945,7 @@ static void configure_inputs() {
     for (uint8_t k = 0; k < cfg::MAX_OUTPUTS; ++k) {
       rl.fb_pending[k] = false;
       rl.fb_error[k] = false;
-      rl.fb_source_scene[k] = -1;
+      rl.fb_confirming[k] = false;
       rl.btn_pressed[k] = false;
       rl.btn_raw[k] = false;
       rl.btn_since[k] = millis32();
