@@ -93,13 +93,13 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
 | GET | `/`, `/index.html` | Haupt-UI |
 | GET/POST | `/login`, `/logout` | Authentifizierung |
 | GET/POST | `/password` | Passwort ändern |
-| GET/POST | `/config` | „Buttons": Titel/Untertitel/`public_access` + je Button (1–8) Aktiv, Name, Zuordnung zu einem Relais-Eingang (Dropdown) |
+| GET/POST | `/config` | „Buttons": Titel/Untertitel/`public_access` + je Button (1–8) Aktiv, Name, Zuordnung zu einem Relais-Eingang (Dropdown). Rechts am Dropdown zeigt eine Live-Anzeige die GPIOs der gewählten Zuordnung (Ausgangs-GPIO + Rückmelde-/Taster-GPIO je nach Rolle; Daten aus `relais_options_json()`) |
 | GET/POST | `/relais` | „Relais" (Admin): je Relais (1–8) Aktiv, Typ (1-fach/2-fach/4-fach), Name, Low aktiv, Impuls+Impulszeit; je Ausgang wählbare Ausgangs-GPIO + Eingangsrolle (keine/Rückmeldung/Taster) + LOW; globale Rückmeldezeit und Taster-Entprellzeit |
 | GET/POST | `/network` | Statische IP-Einstellungen |
 | GET/POST | `/admin` | Benutzer-/API-Key-Verwaltung |
 | GET | `/me` | Aktueller Benutzer |
 | GET | `/active_users` | Aktive Sessions/Gäste |
-| GET | `/state` | Button-Zustände (JSON: `relays`=Button-EIN, `names`, `btn_en`=aktiviert, `feedback_errors`, `scene_mode`, `buttons`=Tasterdruck) |
+| GET | `/state` | Button-Zustände (JSON: `relays`=Button-EIN, `names`, `btn_en`=aktiviert, `feedback_errors`=Rückmeldefehler je Button, `scene_mode`, `active_scene`, `scene_dirty`, `scene_errors`=Rückmeldefehler je Szene, `buttons`=Tasterdruck) |
 | GET/POST | `/scenes` | Szenen-Modus + Szenen konfigurieren (Aktion je **Button**, Admin) |
 | GET | `/events` | Server-Sent Events (Live-Status) |
 | POST | `/relay/<idx>/<on\|off\|toggle>` | Button `idx` (0–7) schalten/umschalten |
@@ -280,12 +280,34 @@ Zentrale Abstraktion (kein Compileschalter mehr):
   ergibt sich fest daraus (`input_for_output()`: `OUTPUT_PINS[i]`↔`INPUT_PINS[i]`).
   `resolve_gpios()` validiert (kein Ausgangs-Pin doppelt) und leitet `in_gpio` ab.
 - **Eingangsrolle je Ausgang** (Laufzeit, Dropdown auf `/relais`):
-  - `Rückmeldung` — `service_relay_feedback()` prüft `in_gpio` gegen den erwarteten
-    Zustand, Polarität je Ausgang; gemeinsame `feedback_timeout_ms`.
+  - `Rückmeldung` — `service_relay_feedback()` (core0) überwacht `in_gpio`
+    **dauerhaft** gegen den erwarteten Zustand `fb_expected` (= gelatchter
+    `active_output`), Polarität je Ausgang. Zwei Phasen: **(1) Einschwingen**
+    (`fb_pending`, Frist `feedback_timeout_ms`) direkt nach dem Schalten — passt die
+    Rückmeldung bis dahin nicht, wird ein Fehler gesetzt; **(2) eingeschwungen** —
+    fortlaufender Vergleich, so wird auch ein *später* durch Defekt abfallendes oder
+    umschaltendes Relais erkannt (bzw. der Fehler selbstheilend gelöscht). Eine
+    Änderung im eingeschwungenen Zustand wird mit `feedback_timeout_ms` **entprellt**
+    (`fb_confirming`), damit prellende Kontakte kein Flackern erzeugen. Während eines
+    laufenden Impulses (`imp_active`) wird nicht geprüft. Bei 2-/4-fach nur der
+    **aktive** Ausgang (Geschwister unverwaltet). `fb_expected` wird beim Boot und bei
+    jedem Config-Übernehmen in `apply_all_outputs()` aus `active_output` gesetzt —
+    sonst würden eingeschaltete Ausgänge fälschlich als Fehler gemeldet.
   - `Taster` — `service_tasters()` (core0) entprellt (`taster_debounce_ms`, Pull-Up,
     gedrückt = LOW) und löst bei steigender Flanke denselben Relais-Eingang aus wie
     der zugehörige logische Button.
   - `keine` — Eingang ungenutzt.
+- **Rückmeldefehler-Anzeige nur bei Rolle `Rückmeldung`** (harte Invariante):
+  `output_has_feedback_error()` liefert nur dann `true`, wenn das Relais gültig+aktiv
+  **und** die Ausgangsrolle `Rückmeldung` ist. `keine`/`Taster` können per Definition
+  nie rot werden. `button_feedback_error()` und `update_scene_feedback_errors()`
+  nutzen diese Prüfung.
+- **Szenen-Rückmeldefehler:** `update_scene_feedback_errors()` markiert eine Szene
+  rot, sobald ein von ihr angesteuerter Rückmelde-Ausgang einen Fehler meldet —
+  **definiert über die Szenen-Aktionen** (1-fach `action != 2`, 2-/4-fach
+  `action == 1`), nicht über „wer zuletzt schaltete". So folgt die Szenenkachel dem
+  Fehler unabhängig davon, wer den Ausgang geschaltet hat und ob die Szene aktiv ist;
+  referenzieren mehrere Szenen denselben Ausgang, werden alle rot.
 - **Buttons** (1–8, Seite `/config`): logische Bedienelemente (Web + ESP-Display),
   jeder verweist explizit auf einen Relais-Eingang. Ein `1-fach`-Relais belegt 1
   Button-Ziel, ein `4-fach`-Relais 4 (gegenseitig ausschließend → auf dem Display
@@ -294,7 +316,8 @@ Zentrale Abstraktion (kein Compileschalter mehr):
   `SWn` + `/relay/<idx>`) und `service_tasters()` (physische Taster) laufen über
   dieselbe Aktion; die **ESP-Anzeige/Protokoll bleiben button-indiziert unverändert**.
 - `state_json()` liefert `relays` (Button-EIN), `feedback_errors` (Fehler des
-  referenzierten Ausgangs) und `buttons` (Tasterdruck des referenzierten Ausgangs).
+  referenzierten Ausgangs, nur bei Rolle `Rückmeldung`), `scene_errors` (Fehler je
+  Szene) und `buttons` (Tasterdruck des referenzierten Ausgangs).
 
 ---
 
@@ -307,6 +330,10 @@ Lokales Touch-Terminal (Board ESP32-2432S028, „CYD"), LVGL 8 + TFT_eSPI + XPT2
   wie im Szenen-Modus. **Dynamische Größe** (`apply_button_layout`): bei 1–3 sichtbaren
   Elementen große Kacheln (Höhe 150, Breite 200/140/88), sonst 4×2-Raster. Startanzeige
   „wait for init", bis der Pico antwortet.
+  Ein **leerer** `NAMEn:` deaktiviert einen Button und blendet ihn aus — sowohl im
+  Erst-Ladepfad (`pico_read_display_config`, Vollständigkeit hängt an `END DISPLAY`,
+  nicht an „alle Namen gesetzt") als auch beim asynchronen Live-Update
+  (`handle_pico_name_line` übernimmt leere Namen; Neu-Packen bei `END DISPLAY`).
   Unten links die IP-Statuszeile, **unten rechts der aktive Modus** („Szenen"/„Buttons", aus `MODE:`).
   Im **Szenen-Modus** zeigen die Buttons die Szenennamen (blau); nur aktivierte
   Szenen sind sichtbar, ein Tastendruck löst die Szene aus (momentan).
@@ -348,12 +375,12 @@ Lokales Touch-Terminal (Board ESP32-2432S028, „CYD"), LVGL 8 + TFT_eSPI + XPT2
 | `PONG` | Antwort auf `PING` |
 | `TITLE:<text>` | Seitentitel |
 | `SUBTITLE:<text>` | Untertitel |
-| `NAMEn:<text>` | Name von Kanal `n` |
+| `NAMEn:<text>` | Name von Button `n` (**leer = Button deaktiviert/ausgeblendet**) |
 | `MODE:SCENE` / `MODE:RELAY` | Aktiver Modus (Szenen- oder Direktbetrieb) |
 | `SCENEn:<text>` | Name von Szene `n` (leer = Szene inaktiv) |
-| `STATEn:ON` / `STATEn:OFF` | Zustand von Kanal `n` |
-| `ERRORn:ON` / `ERRORn:OFF` | Rückmeldefehler von Relais `n` |
-| `SERRORn:ON` / `SERRORn:OFF` | Rückmeldefehler der zuletzt auslösenden Szene `n` |
+| `STATEn:ON` / `STATEn:OFF` | Zustand von Button `n` |
+| `ERRORn:ON` / `ERRORn:OFF` | Rückmeldefehler des von Button `n` referenzierten Ausgangs (nur bei Rolle `Rückmeldung`) |
+| `SERRORn:ON` / `SERRORn:OFF` | Rückmeldefehler von Szene `n` (ein von der Szene angesteuerter Rückmelde-Ausgang steht falsch) |
 | `END STATES` | Ende der Zustandsliste |
 | `END NAMES` | Ende der Namensliste |
 | `END DISPLAY` | Ende der vollständigen Display-Konfiguration |

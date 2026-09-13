@@ -56,8 +56,17 @@ Enthält die eigentliche Relais- und Netzwerk-Firmware und implementiert:
 - **Ausgangs-GPIO frei wählbar** je Relais-Ausgang (Pool GP2–9); der zugehörige
   Eingangs-GPIO ergibt sich fest daraus (GP2↔GP10 … GP9↔GP28).
 - **Eingangsrolle je Ausgang zur Laufzeit** wählbar (kein Compilerschalter mehr):
-  **Rückmeldung** (Schaltkontrolle) **oder** **Taster** (entprellt, löst denselben
+  **keine**, **Rückmeldung** (Schaltkontrolle) **oder** **Taster** (entprellt, löst denselben
   Relais-Eingang aus wie der logische Button) — einstellbar auf der Seite **Relais**.
+- **Dauerhafte Rückmeldeüberwachung** (nur Rolle *Rückmeldung*): Nach dem Schalten prüft
+  eine Einschwingfrist, ob das Relais den Sollzustand erreicht; danach wird der Ist-Zustand
+  **fortlaufend** überwacht, sodass auch ein später durch Defekt abfallendes oder
+  umschaltendes Relais als Fehler erkannt wird (Änderungen entprellt). Ein Fehler wird
+  rot dargestellt — auf dem betroffenen **Button** und (im Szenenmodus) auf jeder **Szene**,
+  die diesen Ausgang ansteuert. Die Rollen **keine** und **Taster** können per Definition
+  nie rot werden.
+- Auf der Seite **Buttons** zeigt eine Live-Anzeige rechts am Zuordnungs-Dropdown den
+  verwendeten Ausgangs-GPIO und den Rückmelde-/Taster-GPIO der gewählten Zuordnung.
 - Szenen (Aktion je Button; 1-fach = Umschalten, 2-/4-fach = Ausgang wählen)
 - **Impuls-Sicherheit:** ein Hardware-Timer begrenzt Impuls-Ausgänge hart auf die
   Impulszeit (auch beim Einschalten), unabhängig von der Hauptschleife.
