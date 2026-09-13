@@ -190,8 +190,8 @@ static bool pico_read_line(String &out, uint32_t timeout_ms)
 static bool pico_read_display_config(String &title)
 {
     bool got_title = false;
-    bool got_name[SWITCH_COUNT] = { false };
     bool got_state[SWITCH_COUNT] = { false };
+    bool saw_end = false;
 
     while (PICO_UART.available()) PICO_UART.read();
     PICO_UART.println("GET DISPLAY");
@@ -230,8 +230,7 @@ static bool pico_read_display_config(String &title)
         for (int i = 0; i < SWITCH_COUNT; i++) {
             String prefix = String("NAME") + String(i + 1) + ":";
             if (line.startsWith(prefix)) {
-                switch_names[i] = line.substring(prefix.length());
-                got_name[i] = switch_names[i].length() > 0;
+                switch_names[i] = line.substring(prefix.length());  // leer = deaktiviert
                 break;
             }
         }
@@ -247,18 +246,19 @@ static bool pico_read_display_config(String &title)
         }
 
         if (line == "END DISPLAY") {
+            saw_end = true;
             break;
         }
     }
 
-    bool got_all_names = true;
     bool got_all_states = true;
     for (int i = 0; i < SWITCH_COUNT; i++) {
-        got_all_names = got_all_names && got_name[i];
         got_all_states = got_all_states && got_state[i];
     }
 
-    bool got_display_config = got_title && got_all_names && got_all_states;
+    // Vollstaendig, wenn der komplette Block (bis END DISPLAY) samt Titel und allen
+    // Zustaenden ankam. Namen duerfen leer sein (deaktivierte Buttons).
+    bool got_display_config = saw_end && got_title && got_all_states;
     if (got_display_config) last_pico_pong_ms = millis();
     return got_display_config;
 }
@@ -296,10 +296,9 @@ static bool handle_pico_name_line(const String &line)
         String prefix = String("NAME") + String(i + 1) + ":";
         if (!line.startsWith(prefix)) continue;
 
-        String name = line.substring(prefix.length());
-        if (name.length() == 0) return false;
-
-        switch_names[i] = name;
+        // Leerer Name = Button deaktiviert -> muss uebernommen werden, damit der
+        // Button ausgeblendet wird (Neu-Packen erfolgt bei END DISPLAY).
+        switch_names[i] = line.substring(prefix.length());
         update_switch_visual(i);
         return true;
     }

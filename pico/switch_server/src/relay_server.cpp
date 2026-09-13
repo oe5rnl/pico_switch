@@ -934,7 +934,7 @@ static void update_scene_feedback_errors() {
       if (k >= outputs_count(rl)) continue;
       const uint8_t a = scenes[s].action[b];
       const bool referenced = (rl.type == RelayType::Simple) ? (a != 2) : (a == 1);
-      if (referenced && rl.fb_error[k]) { scene_feedback_error[s] = true; break; }
+      if (referenced && rl.in_role[k] == static_cast<uint8_t>(InRole::Feedback) && rl.fb_error[k]) { scene_feedback_error[s] = true; break; }
     }
   }
 }
@@ -1215,11 +1215,21 @@ static std::string active_users_json(bool include_users) {
   return std::string("{\"active_users\":") + (include_users ? active_users_array_json() : "null") + "}";
 }
 
+// Ein Rueckmeldefehler kann per Definition nur an einem Ausgang mit Rolle
+// "Rueckmeldung" entstehen. "keine"/"Taster" duerfen NIE rot werden.
+static bool output_has_feedback_error(int8_t relais_idx, uint8_t k) {
+  if (relais_idx < 0 || relais_idx >= cfg::MAX_RELAIS || k >= cfg::MAX_OUTPUTS) return false;
+  const Relais &rl = relais[relais_idx];
+  if (!rl.valid || !rl.enabled) return false;
+  if (rl.in_role[k] != static_cast<uint8_t>(InRole::Feedback)) return false;
+  return rl.fb_error[k];
+}
+
 // Zustand des von Button b referenzierten Ausgangs: Rueckmeldefehler bzw. Tasterdruck.
 static bool button_feedback_error(uint8_t b) {
   const Button &bt = buttons[b];
   if (!bt.enabled || bt.relais_idx < 0 || bt.relais_idx >= cfg::MAX_RELAIS) return false;
-  return relais[bt.relais_idx].fb_error[bt.input_idx];
+  return output_has_feedback_error(bt.relais_idx, bt.input_idx);
 }
 static bool button_taster_pressed(uint8_t b) {
   const Button &bt = buttons[b];
@@ -1526,7 +1536,14 @@ static std::string relais_options_json() {
     if (!rl.enabled || !rl.valid) continue;
     if (!first) out += ',';
     first = false;
-    out += "{\"i\":" + std::to_string(r) + ",\"name\":\"" + json_escape(rl.name) + "\",\"n\":" + std::to_string(outputs_count(rl)) + "}";
+    out += "{\"i\":" + std::to_string(r) + ",\"name\":\"" + json_escape(rl.name) + "\",\"n\":" + std::to_string(outputs_count(rl));
+    out += ",\"out\":[";
+    for (uint8_t k = 0; k < outputs_count(rl); ++k) { if (k) out += ','; out += std::to_string(rl.out_gpio[k]); }
+    out += "],\"in\":[";
+    for (uint8_t k = 0; k < outputs_count(rl); ++k) { if (k) out += ','; out += std::to_string(rl.in_gpio[k]); }
+    out += "],\"role\":[";
+    for (uint8_t k = 0; k < outputs_count(rl); ++k) { if (k) out += ','; out += std::to_string(rl.in_role[k]); }
+    out += "]}";
   }
   out += "]";
   return out;
@@ -1542,10 +1559,13 @@ static std::string build_config_html(const Session *session) {
                "\",\"rel\":" + std::to_string(bt.relais_idx) + ",\"in\":" + std::to_string(bt.input_idx) + "}";
   }
   btnData += "]";
-  std::string html = "<!DOCTYPE html><html lang=\"de\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + html_escape(site_title) + " - Buttons</title><style>html,body{margin:0}body{box-sizing:border-box;font-family:'Segoe UI',sans-serif;background:#121212;color:#e0e0e0;min-height:100vh;padding:108px 24px 24px}" + page_header_css() + "h1{color:#4dabf7}.card{background:#1e1e1e;padding:24px;max-width:980px;border:1px solid #2d2d2d}.row{display:flex;gap:12px;margin-bottom:12px;align-items:center}.row>label:first-child{width:160px;color:#9e9e9e;white-space:nowrap}.row>input{flex:1;min-width:180px;background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:8px}.brow{display:flex;flex-wrap:wrap;gap:10px;align-items:center;border-top:1px solid #2d2d2d;padding-top:10px;margin-bottom:6px}.brow .bn{flex:none;width:80px;color:#9e9e9e}.brow .checklbl{flex:none;display:flex;align-items:center;gap:4px;color:#9e9e9e}.brow input[type=text]{flex:0 1 auto;min-width:120px;background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:8px}.brow select{background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:8px;min-width:200px}.actions button{margin:0}button{padding:10px 14px;margin:4px;background:#1a3a5c;color:#4dabf7;border:1px solid #1e5a9e;font-weight:700}.save{background:#1b4332;color:#51cf66;border-color:#2d6a4f}.danger{background:#3d1515;color:#ff6b6b;border-color:#7a2020}.ok{color:#51cf66}.err{color:#ff6b6b}#msg{min-height:1.8em;margin:8px 0;display:flex;align-items:center}</style></head><body>" + page_header_html(session, true) + "<h1>Buttons</h1>" + page_nav_actions("config") + "<div id=\"msg\"></div><div class=\"card\"><div class=\"row\"><label>Titel</label><input id=\"title\" maxlength=\"64\" value=\"" + html_escape(site_title) + "\"></div><div class=\"row\"><label>Ueberschrift</label><input id=\"subtitle\" maxlength=\"64\" value=\"" + html_escape(site_subtitle) + "\"></div><div class=\"row\"><label>Oeffentlich</label><input type=\"checkbox\" id=\"pub\" style=\"flex:none;width:auto;padding:0;margin:0;border:none;background:none\" " + std::string(public_access ? "checked" : "") + "></div><div id=\"btns\"></div></div><script>const relData=" + relais_options_json() + ";const btnData=" + btnData + ";const msg=document.getElementById('msg');" + std::string(sse_conn_script()) +
+  std::string html = "<!DOCTYPE html><html lang=\"de\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + html_escape(site_title) + " - Buttons</title><style>html,body{margin:0}body{box-sizing:border-box;font-family:'Segoe UI',sans-serif;background:#121212;color:#e0e0e0;min-height:100vh;padding:108px 24px 24px}" + page_header_css() + "h1{color:#4dabf7}.card{background:#1e1e1e;padding:24px;max-width:980px;border:1px solid #2d2d2d}.row{display:flex;gap:12px;margin-bottom:12px;align-items:center}.row>label:first-child{width:160px;color:#9e9e9e;white-space:nowrap}.row>input{flex:1;min-width:180px;background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:8px}.brow{display:flex;flex-wrap:wrap;gap:10px;align-items:center;border-top:1px solid #2d2d2d;padding-top:10px;margin-bottom:6px}.brow .bn{flex:none;width:80px;color:#9e9e9e}.brow .checklbl{flex:none;display:flex;align-items:center;gap:4px;color:#9e9e9e}.brow input[type=text]{flex:0 1 auto;min-width:120px;background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:8px}.brow select{background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:8px;min-width:200px}.brow .gpinfo{flex:none;color:#8bd5ff;font-family:monospace;font-size:.8rem;white-space:nowrap}.actions button{margin:0}button{padding:10px 14px;margin:4px;background:#1a3a5c;color:#4dabf7;border:1px solid #1e5a9e;font-weight:700}.save{background:#1b4332;color:#51cf66;border-color:#2d6a4f}.danger{background:#3d1515;color:#ff6b6b;border-color:#7a2020}.ok{color:#51cf66}.err{color:#ff6b6b}#msg{min-height:1.8em;margin:8px 0;display:flex;align-items:center}</style></head><body>" + page_header_html(session, true) + "<h1>Buttons</h1>" + page_nav_actions("config") + "<div id=\"msg\"></div><div class=\"card\"><div class=\"row\"><label>Titel</label><input id=\"title\" maxlength=\"64\" value=\"" + html_escape(site_title) + "\"></div><div class=\"row\"><label>Ueberschrift</label><input id=\"subtitle\" maxlength=\"64\" value=\"" + html_escape(site_subtitle) + "\"></div><div class=\"row\"><label>Oeffentlich</label><input type=\"checkbox\" id=\"pub\" style=\"flex:none;width:auto;padding:0;margin:0;border:none;background:none\" " + std::string(public_access ? "checked" : "") + "></div><div id=\"btns\"></div></div><script>const relData=" + relais_options_json() + ";const btnData=" + btnData + ";const msg=document.getElementById('msg');" + std::string(sse_conn_script()) +
     "function optLabel(r,k){const base='Relais '+(r.i+1)+(r.name?' ('+r.name+')':'');return r.n>1?base+' \\u2013 Ausgang '+(k+1):base}"
-    "function buildSelect(b){let s='<select data-b=\"'+b+'\"><option value=\"-1_0\">\\u2013 keine \\u2013</option>';relData.forEach(r=>{for(let k=0;k<r.n;k++){const v=r.i+'_'+k;const sel=(btnData[b].rel===r.i&&btnData[b].in===k)?' selected':'';s+='<option value=\"'+v+'\"'+sel+'>'+optLabel(r,k)+'</option>'}});return s+'</select>'}"
-    "const wrap=document.getElementById('btns');let h='';for(let b=0;b<" + std::to_string(cfg::MAX_BUTTONS) + ";b++){h+='<div class=\"brow\"><span class=\"bn\">Button '+(b+1)+'</span><label class=\"checklbl\"><input type=\"checkbox\" data-en=\"'+b+'\"'+(btnData[b].en?' checked':'')+'> aktiv</label><input type=\"text\" maxlength=\"32\" data-name=\"'+b+'\" placeholder=\"Name\" value=\"\">'+buildSelect(b)+'</div>'}wrap.innerHTML=h;for(let b=0;b<" + std::to_string(cfg::MAX_BUTTONS) + ";b++){document.querySelector('input[data-name=\"'+b+'\"]').value=btnData[b].name}"
+    "function relById(i){return relData.find(r=>r.i===i)}"
+    "function gpText(rel,k){const r=relById(rel);if(!r||k>=r.n)return '';const o=r.out[k];if(o<0)return 'GP \\u2013';let t='Ausg. GP'+o;const inp=r.in[k],role=r.role[k];if(role===1&&inp>=0)t+=' \\u2192 RM GP'+inp;else if(role===2&&inp>=0)t+=' \\u2192 Ta GP'+inp;return t}"
+    "function updGp(b){const v=document.querySelector('select[data-b=\"'+b+'\"]').value.split('_');const rel=+v[0],k=+v[1];document.getElementById('gp'+b).textContent=(rel<0)?'':gpText(rel,k)}"
+    "function buildSelect(b){let s='<select data-b=\"'+b+'\" onchange=\"updGp('+b+')\"><option value=\"-1_0\">\\u2013 keine \\u2013</option>';relData.forEach(r=>{for(let k=0;k<r.n;k++){const v=r.i+'_'+k;const sel=(btnData[b].rel===r.i&&btnData[b].in===k)?' selected':'';s+='<option value=\"'+v+'\"'+sel+'>'+optLabel(r,k)+'</option>'}});return s+'</select><span class=\"gpinfo\" id=\"gp'+b+'\"></span>'}"
+    "const wrap=document.getElementById('btns');let h='';for(let b=0;b<" + std::to_string(cfg::MAX_BUTTONS) + ";b++){h+='<div class=\"brow\"><span class=\"bn\">Button '+(b+1)+'</span><label class=\"checklbl\"><input type=\"checkbox\" data-en=\"'+b+'\"'+(btnData[b].en?' checked':'')+'> aktiv</label><input type=\"text\" maxlength=\"32\" data-name=\"'+b+'\" placeholder=\"Name\" value=\"\">'+buildSelect(b)+'</div>'}wrap.innerHTML=h;for(let b=0;b<" + std::to_string(cfg::MAX_BUTTONS) + ";b++){document.querySelector('input[data-name=\"'+b+'\"]').value=btnData[b].name;updGp(b)}"
     "function save(){const en=[],names=[],rel=[],inp=[];for(let b=0;b<" + std::to_string(cfg::MAX_BUTTONS) + ";b++){en.push(document.querySelector('input[data-en=\"'+b+'\"]').checked);names.push(document.querySelector('input[data-name=\"'+b+'\"]').value.trim());const v=document.querySelector('select[data-b=\"'+b+'\"]').value.split('_');rel.push(+v[0]);inp.push(+v[1])}fetch('/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({btn_enabled:en,btn_names:names,btn_relais:rel,btn_input:inp,title:document.getElementById('title').value,subtitle:document.getElementById('subtitle').value,public:document.getElementById('pub').checked})}).then(r=>r.json()).then(d=>{if(d.ok===false){msg.textContent=d.error||'Fehler';msg.className='err';return}const nt=document.getElementById('title').value.trim();if(nt){const st=document.getElementById('sitetitle');if(st)st.textContent=nt;document.title=nt+' - Buttons'}if(d.warning){msg.textContent='Gespeichert \\u2013 Hinweis: '+d.warning;msg.className='err'}else{msg.textContent='OK gespeichert';msg.className='ok';setTimeout(()=>{msg.textContent='';msg.className=''},2000)}}).catch(()=>{msg.textContent='Fehler';msg.className='err'})}"
     "</script></body></html>";
   return html;
@@ -1979,6 +1999,7 @@ static void apply_all_outputs() {
     if (!rl.valid || !rl.enabled) continue;
     for (uint8_t k = 0; k < outputs_count(rl); ++k) {
       const bool on = (rl.active_output == static_cast<uint8_t>(k + 1));
+      rl.fb_expected[k] = on;  // Latch als erwartete Rueckmeldung (Dauerueberwachung)
       if (on && rl.impulse) {  // beim Einschalten einen Impuls ausgeben, Latch bleibt EIN
         apply_output(r, k, true);
         rl.imp_active[k] = true;
