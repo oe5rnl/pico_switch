@@ -121,7 +121,10 @@ Kehrt die Anzeige später zu `wait for init` zurück, besteht keine Kommunikatio
 
 Die untere Zeile zeigt links die IP-Adresse des Webservers (bei verlorenem LAN-Link
 eine entsprechende Fehlermeldung) und **unten rechts den aktiven Modus** („Buttons"
-oder „Szenen").
+oder „Szenen"). Die Modusanzeige ist **antippbar**: Ein Tippen schaltet zwischen
+Button- und Szenen-Modus um (wie die Checkbox „Szenen-Modus aktiv" auf der Seite
+`/scenes`). Die Umschaltung wird im Pico persistiert und auch auf der Webseite live
+übernommen.
 
 ### 4.2 Button-Modus
 

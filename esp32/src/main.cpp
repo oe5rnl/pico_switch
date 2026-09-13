@@ -162,7 +162,7 @@ static void update_mode_label()
 {
     if (!mode_label) return;
     lv_label_set_text(mode_label, scene_mode ? "Szenen" : "Buttons");
-    lv_obj_align(mode_label, LV_ALIGN_BOTTOM_RIGHT, -4, -2);
+    lv_obj_align(mode_label, LV_ALIGN_BOTTOM_RIGHT, -21, -2);
 }
 
 // Liest eine Zeile (bis '\n') von PICO_UART, max. timeout_ms.
@@ -543,6 +543,15 @@ static void refresh_all_buttons()
     }
 }
 
+// Tap auf die Modusanzeige (unten rechts): schaltet zwischen Szenen- und
+// Button-Modus um. Der Pico bestätigt per MODE:/Display-Update.
+static void mode_event_cb(lv_event_t * e)
+{
+    (void)e;
+    if (!pico_online) return;
+    PICO_UART.println("MODE:TOGGLE");
+}
+
 static void switch_event_cb(lv_event_t * e)
 {
     int idx = (int)(intptr_t)lv_event_get_user_data(e);
@@ -581,12 +590,15 @@ static void create_ui(void)
     lv_obj_align(ipl, LV_ALIGN_BOTTOM_LEFT, 4, -2);
     ip_label = ipl;
 
-    /* Modus unten rechts ("Szenen"/"Buttons") */
+    /* Modus unten rechts ("Szenen"/"Buttons") - antippbar zum Umschalten */
     lv_obj_t * mdl = lv_label_create(scr);
     lv_label_set_text(mdl, "");
-    lv_obj_set_style_text_font(mdl, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(mdl, lv_color_hex(0x808080), 0);
-    lv_obj_align(mdl, LV_ALIGN_BOTTOM_RIGHT, -4, -2);
+    lv_obj_set_style_text_font(mdl, &lv_font_montserrat_22, 0);  /* 50% groesser */
+    lv_obj_set_style_text_color(mdl, lv_color_hex(0x60d0ff), 0);
+    lv_obj_add_flag(mdl, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_ext_click_area(mdl, 12);  // groessere Trefferflaeche fuer Touch
+    lv_obj_add_event_cb(mdl, mode_event_cb, LV_EVENT_CLICKED, nullptr);
+    lv_obj_align(mdl, LV_ALIGN_BOTTOM_RIGHT, -21, -2);  /* ~3mm weiter links */
     mode_label = mdl;
 
     /* Button-Grid: 4 Spalten x 2 Zeilen */

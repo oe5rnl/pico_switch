@@ -2707,6 +2707,28 @@ static bool handle_scene_command(const char *line) {
   return true;
 }
 
+// ESP-Display: Modusumschaltung per Tastendruck auf das Modus-Label.
+// "MODE:TOGGLE" schaltet um, "MODE:SCENE"/"MODE:RELAY" setzen explizit.
+static bool handle_mode_command(const char *line) {
+  if (std::strncmp(line, "MODE:", 5) != 0) return false;
+  const char *arg = line + 5;
+  bool new_mode;
+  if (std::strcmp(arg, "TOGGLE") == 0) new_mode = !scene_mode;
+  else if (std::strcmp(arg, "SCENE") == 0) new_mode = true;
+  else if (std::strcmp(arg, "RELAY") == 0) new_mode = false;
+  else return false;
+
+  {
+    StateLock lock;
+    scene_mode = new_mode;
+    if (active_scene >= 0 && (active_scene >= cfg::SCENE_COUNT || !scenes[active_scene].enabled)) active_scene = -1;
+  }
+  g_persist_dirty = true;          // Flash-Speichern (core1)
+  g_sse_dirty = true;              // Web-Live-Update (core1)
+  esp_link_display_dirty = true;   // Display neu aufbauen (Namen/Szenen/Modus)
+  return true;
+}
+
 static bool handle_switch_command(const char *line) {
   if (std::strncmp(line, "SW", 2) != 0) return false;
 
@@ -2748,6 +2770,8 @@ static void handle_line(const char *line) {
     uart_puts(UART, "PONG\n");
   } else if (std::strncmp(line, "VER:", 4) == 0) {
     esp_fw_version = line + 4;
+  } else if (handle_mode_command(line)) {
+    printf("ESP-UART: Modus umgeschaltet\n");
   } else if (handle_scene_command(line)) {
     printf("ESP-UART: Szene aktiviert\n");
   } else if (handle_switch_command(line)) {
