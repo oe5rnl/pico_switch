@@ -991,9 +991,9 @@ static void relais_set_simple(uint8_t r, bool on) {
   drive_output_locked(r, 0, on);
 }
 
-// 4-fach: Ausgang k anwaehlen (nur diesen schalten, Geschwister nur logisch aus).
-// Rueckmelde-/Impuls-Laufzeit der Geschwister wird zurueckgesetzt (nur der aktive
-// Ausgang wird ueberwacht).
+// 2-/4-fach: Ausgang k anwaehlen. Der gewaehlte Ausgang wird geschaltet, alle
+// Geschwister werden physisch abgeschaltet (gegenseitiger Ausschluss: immer genau
+// ein Ausgang aktiv) und ihre Rueckmelde-/Impuls-Laufzeit zurueckgesetzt.
 static void relais_select_quad(uint8_t r, uint8_t k) {
   Relais &rl = relais[r];
   for (uint8_t j = 0; j < outputs_count(rl); ++j) {
@@ -1002,6 +1002,8 @@ static void relais_select_quad(uint8_t r, uint8_t k) {
     rl.fb_pending[j] = false;
     rl.fb_error[j] = false;
     rl.fb_confirming[j] = false;
+    rl.fb_expected[j] = false;
+    apply_output(r, j, false);  // Geschwister elektrisch ausschalten
   }
   rl.active_output = static_cast<uint8_t>(k + 1);
   drive_output_locked(r, k, true);

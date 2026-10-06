@@ -1,4 +1,4 @@
-# Relais-Webserver
+# Relais-Webserver !!! ENTHÄLT FEHLER !!!
 
 Dieses Repository enthält zwei Module für eine 8-Kanal-Relaissteuerung:
 
