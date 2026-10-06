@@ -2,14 +2,15 @@
 
 ## 1. Überblick
 
-`pico_switch` steuert bis zu acht Relais auf bis zu acht GPIO-Ausgängen. Die Bedienung ist auf zwei Arten möglich:
+`pico_switch` steuert bis zu acht Relais auf bis zu acht GPIO-Ausgängen. Die Bedienung ist auf drei Arten möglich:
 
 - über die Webseite mit einem PC, Tablet oder Smartphone im selben Netzwerk,
 - direkt am ESP32-CYD-Touchdisplay.
+- über die REST-API mit einem Application-Key
 
 **Grundkonzept:** Die sichtbaren Bedienelemente sind **Buttons** (1–8). Jeder Button
-verweist auf einen **Eingang eines Relais** – er steuert also nicht mehr direkt eine
-GPIO. **Relais** (1–8) werden getrennt konfiguriert und haben einen Typ:
+verweist auf einen **Eingang eines Relais** – er steuert also nicht direkt eine GPIO. 
+**Relais** (1–8) werden getrennt konfiguriert und haben einen Typ:
 
 - **1-fach:** 1 Button/Eingang → 1 Ausgang.
 - **2-fach / 4-fach:** 2 bzw. 4 Buttons/Eingänge → 2 bzw. 4 Ausgänge, die sich
