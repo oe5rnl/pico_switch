@@ -1482,7 +1482,7 @@ static std::string pw_eye_btn() {
 
 // Einheitliche horizontale Menueleiste (auf allen Admin-Seiten identisch). Der
 // Speichern-Button ruft die seiteneigene save()-Funktion auf; der Button der
-// aktuellen Seite (active = "config"/"relais"/"scenes"/"export") wird rot hervorgehoben.
+// aktuellen Seite (active = "config"/"relais"/"scenes"/"export"/"config_load") wird rot hervorgehoben.
 // Seiten ohne Speichern-Funktion (z. B. Export) blenden den Button per show_save=false aus.
 static std::string page_nav_actions(const char *active, bool show_save = true) {
   auto red = [&](const char *key) {
@@ -1497,6 +1497,7 @@ static std::string page_nav_actions(const char *active, bool show_save = true) {
          "<button onclick=\"location.href='/admin'\">Benutzer/API</button>"
          "<button onclick=\"location.href='/network'\">Network</button>"
          "<button" + red("export") + " onclick=\"location.href='/export'\">Export Config</button>"
+         "<button" + red("config_load") + " onclick=\"location.href='/config_load'\">Import Config</button>"
          "<button class=\"danger\" onclick=\"location.href='/logout'\">Abmelden</button>"
          "</div>";
 }
@@ -1621,13 +1622,15 @@ static std::string build_relais_html(const Session *session) {
 // unabhaengig davon, welche Seite gerade gespeichert wird. Liefert alle gefundenen Probleme
 // als Text (leer = konsistent). Wird nach jedem Speichern aufgerufen -> auch Tabs, die nicht
 // aktiv sind, werden geprueft. Nur core1/config-Felder -> kein Lock noetig.
-static std::string check_all_consistency() {
+static std::string check_all_consistency_impl(const std::array<Relais, cfg::MAX_RELAIS> &rels,
+                                              const std::array<Button, cfg::MAX_BUTTONS> &btns,
+                                              const std::array<Scene, cfg::SCENE_COUNT> &scene_cfg) {
   std::string m;
   // --- Relais: Ausgangs-GPIOs gueltig und eindeutig ---
   std::array<int, 8> used_by;
   used_by.fill(-1);
   for (uint8_t r = 0; r < cfg::MAX_RELAIS; ++r) {
-    const Relais &rl = relais[r];
+    const Relais &rl = rels[r];
     if (!rl.enabled) continue;
     const uint8_t n = outputs_count(rl);
     for (uint8_t k = 0; k < n; ++k) {
@@ -1641,10 +1644,10 @@ static std::string check_all_consistency() {
   std::array<int, cfg::MAX_RELAIS * cfg::MAX_OUTPUTS> btn_by;
   btn_by.fill(-1);
   for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
-    const Button &bt = buttons[b];
+    const Button &bt = btns[b];
     if (!bt.enabled) continue;
     if (bt.relais_idx < 0 || bt.relais_idx >= cfg::MAX_RELAIS) { m += "Button " + std::to_string(b + 1) + ": kein Relais zugeordnet. "; continue; }
-    const Relais &rl = relais[bt.relais_idx];
+    const Relais &rl = rels[bt.relais_idx];
     if (!rl.enabled || !rl.valid) { m += "Button " + std::to_string(b + 1) + ": Relais " + std::to_string(bt.relais_idx + 1) + " inaktiv/ungueltig. "; continue; }
     if (bt.input_idx >= outputs_count(rl)) { m += "Button " + std::to_string(b + 1) + ": Eingang " + std::to_string(bt.input_idx + 1) + " existiert bei Relais " + std::to_string(bt.relais_idx + 1) + " nicht. "; continue; }
     const int key = bt.relais_idx * cfg::MAX_OUTPUTS + bt.input_idx;
@@ -1653,7 +1656,7 @@ static std::string check_all_consistency() {
   }
   // --- Relais ohne Button / Mehrfach-Relais teilbelegt ---
   for (uint8_t r = 0; r < cfg::MAX_RELAIS; ++r) {
-    const Relais &rl = relais[r];
+    const Relais &rl = rels[r];
     if (!rl.enabled || !rl.valid) continue;
     const uint8_t n = outputs_count(rl);
     uint8_t cnt = 0;
@@ -1663,19 +1666,19 @@ static std::string check_all_consistency() {
   }
   // --- Szenen: Buttons aktiv, Mehrfach-Relais-Konflikt, leere Szene ---
   for (uint8_t s = 0; s < cfg::SCENE_COUNT; ++s) {
-    if (!scenes[s].enabled) continue;
+    if (!scene_cfg[s].enabled) continue;
     std::array<uint8_t, cfg::MAX_RELAIS> on_per_relais;
     on_per_relais.fill(0);
     bool any = false;
     for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
-      if (scenes[s].action[b] == 2) continue;
+      if (scene_cfg[s].action[b] == 2) continue;
       any = true;
-      const Button &bt = buttons[b];
-      if (!bt.enabled || bt.relais_idx < 0 || bt.relais_idx >= cfg::MAX_RELAIS || !relais[bt.relais_idx].enabled || !relais[bt.relais_idx].valid) {
+      const Button &bt = btns[b];
+      if (!bt.enabled || bt.relais_idx < 0 || bt.relais_idx >= cfg::MAX_RELAIS || !rels[bt.relais_idx].enabled || !rels[bt.relais_idx].valid) {
         m += "Szene " + std::to_string(s + 1) + " nutzt Button " + std::to_string(b + 1) + ", der inaktiv/nicht zugeordnet ist. ";
         continue;
       }
-      if (relais[bt.relais_idx].type != RelayType::Simple && scenes[s].action[b] == 1) {
+      if (rels[bt.relais_idx].type != RelayType::Simple && scene_cfg[s].action[b] == 1) {
         if (++on_per_relais[bt.relais_idx] == 2)
           m += "Szene " + std::to_string(s + 1) + ": mehrere Eingaenge von Relais " + std::to_string(bt.relais_idx + 1) + " auf 'Ein' (nur einer moeglich). ";
       }
@@ -1683,6 +1686,10 @@ static std::string check_all_consistency() {
     if (!any) m += "Szene " + std::to_string(s + 1) + ": keine Aktion. ";
   }
   return m;
+}
+
+static std::string check_all_consistency() {
+  return check_all_consistency_impl(relais, buttons, scenes);
 }
 
 static void handle_relais_post(uint8_t sn, const HttpRequest &req) {
@@ -1928,12 +1935,103 @@ static uint32_t json_uint_value(const std::string &body, const char *name, uint3
   return value;
 }
 
+static bool json_has_key(const std::string &body, const std::string &key) {
+  return body.find('"' + key + '"') != std::string::npos;
+}
+
+static bool parse_import_ipv4(const std::string &body, const char *name, std::array<uint8_t, 4> &out) {
+  const std::string value = trim(json_string_value(body, name));
+  return !value.empty() && parse_ipv4(value, out);
+}
+
+static bool require_bool_list_size(const std::vector<bool> &values, size_t expected) {
+  return values.size() == expected;
+}
+
+template <typename T>
+static bool require_list_size(const std::vector<T> &values, size_t expected) {
+  return values.size() == expected;
+}
+
+static int relay_type_import_code(const std::string &text) {
+  if (text == "4-fach") return 1;
+  if (text == "2-fach") return 2;
+  return 0;
+}
+
+static int input_role_import_code(const std::string &text) {
+  if (text == "Rueckmeldung") return 1;
+  if (text == "Taster") return 2;
+  return 0;
+}
+
+static bool validate_auth_import_data(const std::vector<std::string> &user_names,
+                                      const std::vector<std::string> &user_hashes,
+                                      const std::vector<std::string> &user_roles,
+                                      const std::vector<std::string> &key_values,
+                                      const std::vector<std::string> &key_comments,
+                                      std::string &err) {
+  if (user_names.size() != user_hashes.size() || user_names.size() != user_roles.size()) {
+    err = "Benutzerdaten unvollstaendig.";
+    return false;
+  }
+  if (key_values.size() != key_comments.size()) {
+    err = "API-Key-Daten unvollstaendig.";
+    return false;
+  }
+  if (user_names.size() > cfg::MAX_USERS) {
+    err = "Zu viele Benutzer im Import.";
+    return false;
+  }
+  if (key_values.size() > cfg::MAX_API_KEYS) {
+    err = "Zu viele API-Keys im Import.";
+    return false;
+  }
+  bool have_admin = false;
+  std::map<std::string, User> imported_users;
+  for (size_t i = 0; i < user_names.size(); ++i) {
+    const std::string username = normalize_username(user_names[i]);
+    const std::string hash = lower(trim(user_hashes[i]));
+    const std::string role = trim(user_roles[i]);
+    if (username.empty()) {
+      err = "Benutzername darf nicht leer sein.";
+      return false;
+    }
+    if (hash.size() != 64 || !std::all_of(hash.begin(), hash.end(), [](char ch) { return std::isxdigit(static_cast<unsigned char>(ch)) != 0; })) {
+      err = "Passwort-Hash fuer Benutzer \"" + username + "\" ist ungueltig.";
+      return false;
+    }
+    if (role != "admin" && role != "user") {
+      err = "Rolle fuer Benutzer \"" + username + "\" ist ungueltig.";
+      return false;
+    }
+    if (role == "admin") have_admin = true;
+    imported_users[username] = {hash, role};
+  }
+  if (!have_admin) {
+    err = "Importierte Benutzer muessen mindestens einen Admin enthalten.";
+    return false;
+  }
+  for (size_t i = 0; i < key_values.size(); ++i) {
+    const std::string key = trim(key_values[i]);
+    if (key.empty() || key.size() > 16) {
+      err = "API-Key " + std::to_string(i + 1) + " ist ungueltig.";
+      return false;
+    }
+    if (key_comments[i].size() > 64) {
+      err = "Kommentar fuer API-Key " + std::to_string(i + 1) + " ist zu lang.";
+      return false;
+    }
+  }
+  return true;
+}
+
 // Leitet je aktivem Relais-Ausgang den Eingangs-GPIO aus dem gewaehlten Ausgangs-GPIO
 // ab und validiert (kein Ausgangs-Pin doppelt belegt). Ungueltige Relais bleiben aus.
-static void resolve_gpios() {
+static void resolve_gpios_for(std::array<Relais, cfg::MAX_RELAIS> &target) {
   std::array<bool, 8> out_used{};  // Pool-Index belegt?
   for (uint8_t r = 0; r < cfg::MAX_RELAIS; ++r) {
-    Relais &rl = relais[r];
+    Relais &rl = target[r];
     for (uint8_t k = 0; k < cfg::MAX_OUTPUTS; ++k) rl.in_gpio[k] = -1;
     rl.valid = false;
     if (!rl.enabled) continue;
@@ -1951,6 +2049,10 @@ static void resolve_gpios() {
     }
     rl.valid = true;
   }
+}
+
+static void resolve_gpios() {
+  resolve_gpios_for(relais);
 }
 
 // Konfiguriert die Eingangs-GPIOs je nach Rolle (Rueckmeldung/Taster) und setzt
@@ -2414,6 +2516,278 @@ function dl(){const ts=new Date().toISOString().replace(/[:T]/g,'-').slice(0,19)
   return html;
 }
 
+static std::string build_config_load_html(const Session *session) {
+  std::string html = "<!DOCTYPE html><html lang=\"de\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + html_escape(site_title) + " - Import Config</title><style>html,body{margin:0}body{box-sizing:border-box;font-family:'Segoe UI',sans-serif;background:#121212;color:#e0e0e0;min-height:100vh;padding:108px 24px 24px}" + page_header_css() +
+      "h1{color:#4dabf7}.card{background:#1e1e1e;padding:20px;max-width:1100px;border:1px solid #2d2d2d;margin-bottom:16px}.row{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:14px}.row label{color:#9e9e9e}.filebox{display:flex;flex-wrap:wrap;gap:12px;align-items:center}.filebox input[type=file]{max-width:100%;background:#2a2a2a;color:#e0e0e0;border:1px solid #333;padding:8px}.actions{margin:0 0 16px}.actions button{margin:0}button{padding:10px 14px;background:#1a3a5c;color:#4dabf7;border:1px solid #1e5a9e;font-weight:700}.save{background:#1b4332;color:#51cf66;border-color:#2d6a4f}.ok{color:#51cf66}.err{color:#ff6b6b}.muted{color:#8b949e}.section-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:8px}.section{border:1px solid #333;padding:12px;background:#171717}.section.disabled{opacity:.55}.section label{display:flex;gap:8px;align-items:flex-start;font-weight:600;color:#e6edf3}.section small{display:block;margin-top:6px;color:#9e9e9e}.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}.meta div{background:#171717;border:1px solid #333;padding:10px}.meta strong{display:block;color:#9e9e9e;margin-bottom:4px}#msg{min-height:1.8em;margin:8px 0;display:flex;align-items:center;white-space:pre-wrap}#summary{white-space:pre-wrap}.hint{font-size:.9rem;color:#9e9e9e}</style></head><body>" +
+      page_header_html(session, true) + "<h1>Import Config</h1>" + page_nav_actions("config_load", false) +
+      "<div id=\"msg\"></div><div class=\"card\"><div class=\"row\"><div class=\"filebox\"><input id=\"file\" type=\"file\" accept=\"application/json,.json\"><button class=\"save\" type=\"button\" onclick=\"startImport()\">Importieren</button></div></div><p class=\"hint\">Die JSON-Datei wird lokal im Browser gelesen. Importiert werden nur die ausgew&auml;hlten Sektionen; Laufzeitdaten aus dem Export bleiben unber&uuml;cksichtigt.</p><div class=\"section-grid\" id=\"sections\"></div></div><div class=\"card\"><h2 style=\"color:#4dabf7;margin:0 0 12px\">Datei&uuml;bersicht</h2><div class=\"meta\" id=\"meta\"></div><div id=\"summary\" class=\"hint\" style=\"margin-top:12px\">Noch keine Datei geladen.</div></div><script>" + std::string(sse_conn_script()) + "const MAX_RELAIS=" + std::to_string(cfg::MAX_RELAIS) + ",MAX_BUTTONS=" + std::to_string(cfg::MAX_BUTTONS) + ",MAX_OUTPUTS=" + std::to_string(cfg::MAX_OUTPUTS) + ",MAX_USERS=" + std::to_string(cfg::MAX_USERS) + ",MAX_KEYS=" + std::to_string(cfg::MAX_API_KEYS) + ";const fileInput=document.getElementById('file');const msg=document.getElementById('msg');const meta=document.getElementById('meta');const summary=document.getElementById('summary');let imported=null;const sectionDefs=[{key:'general',label:'Allgemein',desc:'Titel, Untertitel, public_access, scene_mode, Feedback- und Tasterzeiten.'},{key:'network',label:'Netzwerk',desc:'Nur statische IP/Subnet/Gateway-Werte.'},{key:'relais',label:'Relais',desc:'Relaisdefinitionen inkl. GPIO, Rollen, Polarit&auml;t und Impuls.'},{key:'buttons',label:'Buttons',desc:'Button-Namen und Zuordnung zu Relais/Eing&auml;ngen.'},{key:'scenes',label:'Szenen',desc:'Szenennamen, Aktiv-Flags und Button-Aktionen.'},{key:'auth',label:'Benutzer/API-Keys',desc:'Benutzer mit Passwort-Hashes sowie API-Keys. Aktive Sessions werden dabei beendet.'}];function setMsg(text,cls){msg.textContent=text||'';msg.className=cls||''}function hasSection(key){if(!imported||typeof imported!=='object')return false;if(key==='general')return !!imported.general;if(key==='network')return !!(imported.network&&imported.network.static);if(key==='relais')return Array.isArray(imported.relais);if(key==='buttons')return Array.isArray(imported.buttons);if(key==='scenes')return Array.isArray(imported.scenes);if(key==='auth')return Array.isArray(imported.users)&&Array.isArray(imported.api_keys);return false}function renderSections(){document.getElementById('sections').innerHTML=sectionDefs.map(s=>{const available=hasSection(s.key);return '<div class=\"section'+(available?'':' disabled')+'\"><label><input type=\"checkbox\" data-sec=\"'+s.key+'\"'+(available?' checked':' disabled')+'>'+s.label+'</label><small>'+(available?s.desc:'In der geladenen Datei nicht verf&uuml;gbar.')+'</small></div>'}).join('')}function safeText(v){return (v===null||v===undefined)?'-':String(v)}function renderSummary(){if(!imported||typeof imported!=='object'){meta.innerHTML='';summary.textContent='Noch keine Datei geladen.';renderSections();return}const exp=imported.export||{};const general=imported.general||{};meta.innerHTML='<div><strong>Datei</strong><span>'+safeText(fileInput.files&&fileInput.files[0]?fileInput.files[0].name:'-')+'</span></div>'+'<div><strong>Pico Firmware</strong><span>'+safeText(exp.firmware_pico)+'</span></div>'+'<div><strong>Persist Version</strong><span>'+safeText(exp.persist_version)+'</span></div>'+'<div><strong>Titel</strong><span>'+safeText(general.title)+'</span></div>';const lines=[];lines.push('Verf&uuml;gbare Sektionen: '+sectionDefs.filter(s=>hasSection(s.key)).map(s=>s.label).join(', '));if(Array.isArray(imported.relais))lines.push('Relais: '+imported.relais.length);if(Array.isArray(imported.buttons))lines.push('Buttons: '+imported.buttons.length);if(Array.isArray(imported.scenes))lines.push('Szenen: '+imported.scenes.length);if(Array.isArray(imported.users))lines.push('Benutzer: '+imported.users.length);if(Array.isArray(imported.api_keys))lines.push('API-Keys: '+imported.api_keys.length);summary.textContent=lines.join('\\n');renderSections()}function readSelectedSections(){return Array.from(document.querySelectorAll('input[data-sec]:checked')).map(el=>el.dataset.sec)}function assertCond(cond,text){if(!cond)throw new Error(text)}function numValue(value,fallback){const n=Number(value);return Number.isFinite(n)?n:fallback}function relayTypeCode(text){return text==='4-fach'?1:(text==='2-fach'?2:0)}function relayOutputs(typeText){return typeText==='4-fach'?4:(typeText==='2-fach'?2:1)}function inputRoleCode(text){return text==='Rueckmeldung'?1:(text==='Taster'?2:0)}function requireArray(value,len,text){assertCond(Array.isArray(value),text);if(len!==null)assertCond(value.length===len,text);return value}function loadFile(file){const reader=new FileReader();reader.onload=()=>{try{imported=JSON.parse(String(reader.result||''));setMsg('Datei geladen. Gew&uuml;nschte Sektionen ausw&auml;hlen und importieren.','ok');renderSummary()}catch(err){imported=null;renderSummary();setMsg('JSON konnte nicht gelesen werden: '+err.message,'err')}};reader.onerror=()=>{imported=null;renderSummary();setMsg('Datei konnte nicht gelesen werden.','err')};reader.readAsText(file)}fileInput.addEventListener('change',()=>{const file=fileInput.files&&fileInput.files[0];if(file)loadFile(file)});function buildPayload(){assertCond(imported&&typeof imported==='object','Bitte zuerst eine JSON-Datei laden.');const selected=readSelectedSections();assertCond(selected.length,'Bitte mindestens eine Sektion ausw&auml;hlen.');const payload={};if(selected.includes('general')){const g=imported.general;assertCond(g&&typeof g==='object','Sektion Allgemein fehlt oder ist ungueltig.');payload.load_general=true;payload.g_title=safeText(g.title).slice(0,64);payload.g_subtitle=safeText(g.subtitle).slice(0,64);payload.g_public=!!g.public_access;payload.g_scene_mode=!!g.scene_mode;payload.g_feedback_timeout=Math.max(" + std::to_string(cfg::MIN_FEEDBACK_TIMEOUT_MS) + ",Math.min(" + std::to_string(cfg::MAX_FEEDBACK_TIMEOUT_MS) + ",numValue(g.feedback_timeout_ms," + std::to_string(cfg::DEFAULT_FEEDBACK_TIMEOUT_MS) + ")));payload.g_taster_debounce=Math.max(" + std::to_string(cfg::MIN_DEBOUNCE_MS) + ",Math.min(" + std::to_string(cfg::MAX_DEBOUNCE_MS) + ",numValue(g.taster_debounce_ms," + std::to_string(cfg::DEFAULT_DEBOUNCE_MS) + ")));}if(selected.includes('network')){const net=imported.network&&imported.network.static;assertCond(net&&typeof net==='object','Sektion Netzwerk fehlt oder ist ungueltig.');payload.load_network=true;payload.n_ip=safeText(net.ip);payload.n_subnet=safeText(net.subnet);payload.n_gateway=safeText(net.gateway);}if(selected.includes('relais')){const rels=requireArray(imported.relais,MAX_RELAIS,'Sektion Relais fehlt oder hat nicht 8 Eintr&auml;ge.');payload.load_relais=true;payload.r_enabled=[];payload.r_type=[];payload.r_names=[];payload.r_low=[];payload.r_imp=[];payload.r_impms=[];payload.r_out=[];payload.r_role=[];payload.r_rlow=[];rels.forEach((rel,idx)=>{assertCond(rel&&typeof rel==='object','Relais '+(idx+1)+' ist ungueltig.');const type=safeText(rel.type);const n=relayOutputs(type);const outs=requireArray(rel.outputs,n,'Relais '+(idx+1)+' hat ungueltige Ausgaenge.');payload.r_enabled.push(!!rel.enabled);payload.r_type.push(relayTypeCode(type));payload.r_names.push(safeText(rel.name).slice(0,32));payload.r_low.push(!!rel.active_low);payload.r_imp.push(!!rel.impulse);payload.r_impms.push(Math.max(" + std::to_string(cfg::MIN_IMPULSE_MS) + ",Math.min(" + std::to_string(cfg::MAX_IMPULSE_MS) + ",numValue(rel.impulse_ms," + std::to_string(cfg::DEFAULT_IMPULSE_MS) + "))));for(let k=0;k<MAX_OUTPUTS;k++){const out=k<n?outs[k]:null;payload.r_out.push(out&&Number.isFinite(Number(out.out_gpio))?Number(out.out_gpio):-1);payload.r_role.push(out?inputRoleCode(safeText(out.in_role)):0);payload.r_rlow.push(out?!!out.in_active_low:false)}});}if(selected.includes('buttons')){const btns=requireArray(imported.buttons,MAX_BUTTONS,'Sektion Buttons fehlt oder hat nicht 8 Eintr&auml;ge.');payload.load_buttons=true;payload.btn_enabled=[];payload.btn_names=[];payload.btn_relais=[];payload.btn_input=[];btns.forEach((btn,idx)=>{assertCond(btn&&typeof btn==='object','Button '+(idx+1)+' ist ungueltig.');const rel=btn.relais===null||btn.relais===undefined?-1:(Number(btn.relais)-1);const out=numValue(btn.output,1)-1;payload.btn_enabled.push(!!btn.enabled);payload.btn_names.push(safeText(btn.name).slice(0,32));payload.btn_relais.push(rel);payload.btn_input.push(out)});}if(selected.includes('scenes')){const scs=requireArray(imported.scenes,MAX_BUTTONS,'Sektion Szenen fehlt oder hat nicht 8 Eintr&auml;ge.');payload.load_scenes=true;scs.forEach((scene,idx)=>{assertCond(scene&&typeof scene==='object','Szene '+(idx+1)+' ist ungueltig.');const acts=requireArray(scene.actions,MAX_BUTTONS,'Szene '+(idx+1)+' hat ungueltige Aktionen.');payload['s'+idx+'_en']=!!scene.enabled;payload['s'+idx+'_name']=safeText(scene.name).slice(0,32);payload['s'+idx+'_act']=acts.map(v=>{const n=numValue(v,2);return n===0?'0':(n===1?'1':'2')}).join('')});}if(selected.includes('auth')){const users=requireArray(imported.users,null,'Sektion Benutzer fehlt oder ist ungueltig.');const keys=requireArray(imported.api_keys,null,'Sektion API-Keys fehlt oder ist ungueltig.');assertCond(users.length<=MAX_USERS,'Zu viele Benutzer in der Importdatei.');assertCond(keys.length<=MAX_KEYS,'Zu viele API-Keys in der Importdatei.');payload.load_auth=true;payload.user_names=[];payload.user_hashes=[];payload.user_roles=[];payload.key_values=[];payload.key_comments=[];users.forEach((user,idx)=>{assertCond(user&&typeof user==='object','Benutzer '+(idx+1)+' ist ungueltig.');payload.user_names.push(safeText(user.name).trim().slice(0,31));payload.user_hashes.push(safeText(user.password_sha256).trim().slice(0,64));payload.user_roles.push(safeText(user.role).trim())});keys.forEach((key,idx)=>{assertCond(key&&typeof key==='object','API-Key '+(idx+1)+' ist ungueltig.');payload.key_values.push(safeText(key.key).trim().slice(0,16));payload.key_comments.push(safeText(key.comment).slice(0,64))});}return payload}function startImport(){try{const payload=buildPayload();setMsg('Import l&auml;uft ...','');fetch('/config_load',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(async r=>{let data={};try{data=await r.json()}catch(_){throw new Error('Antwort konnte nicht gelesen werden.')}if(!r.ok&&data.error)throw new Error(data.error);if(data.ok===false)throw new Error(data.error||'Import fehlgeschlagen');if(data.warning)setMsg('Importiert – Hinweis: '+data.warning,'err');else setMsg(data.reauth?'Importiert. Bitte erneut anmelden.':'Import erfolgreich.','ok');if(data.reauth)setTimeout(()=>{location.href='/login?next=/config_load'},900)}).catch(err=>{setMsg(err.message||'Import fehlgeschlagen.','err')})}catch(err){setMsg(err.message||'Import fehlgeschlagen.','err')}}renderSummary();</script></body></html>";
+  return html;
+}
+
+static void handle_config_load_post(uint8_t sn, const HttpRequest &req) {
+  const bool load_general = json_bool_value(req.body, "load_general", false);
+  const bool load_network = json_bool_value(req.body, "load_network", false);
+  const bool load_relais = json_bool_value(req.body, "load_relais", false);
+  const bool load_buttons = json_bool_value(req.body, "load_buttons", false);
+  const bool load_scenes = json_bool_value(req.body, "load_scenes", false);
+  const bool load_auth = json_bool_value(req.body, "load_auth", false);
+  if (!load_general && !load_network && !load_relais && !load_buttons && !load_scenes && !load_auth) {
+    send_response(sn, "400 Bad Request", "application/json", "{\"ok\":false,\"error\":\"keine sektion ausgewaehlt\"}");
+    return;
+  }
+
+  std::array<Relais, cfg::MAX_RELAIS> new_relais = relais;
+  std::array<Button, cfg::MAX_BUTTONS> new_buttons = buttons;
+  std::array<Scene, cfg::SCENE_COUNT> new_scenes = scenes;
+  std::array<uint8_t, 4> new_static_ip = static_ip;
+  std::array<uint8_t, 4> new_static_sn = static_sn;
+  std::array<uint8_t, 4> new_static_gw = static_gw;
+  std::map<std::string, User> new_users = users_db;
+  std::vector<ApiKeyEntry> new_api_keys = api_keys_db;
+  std::string new_title = site_title;
+  std::string new_subtitle = site_subtitle;
+  bool new_public_access = public_access;
+  bool new_scene_mode = scene_mode;
+  uint32_t new_feedback_timeout_ms = feedback_timeout_ms;
+  uint32_t new_taster_debounce_ms = taster_debounce_ms;
+  std::string err;
+
+  if (load_general) {
+    if (!json_has_key(req.body, "g_title") || !json_has_key(req.body, "g_subtitle") || !json_has_key(req.body, "g_public") ||
+        !json_has_key(req.body, "g_scene_mode") || !json_has_key(req.body, "g_feedback_timeout") || !json_has_key(req.body, "g_taster_debounce")) {
+      send_response(sn, "400 Bad Request", "application/json", "{\"ok\":false,\"error\":\"sektion allgemein unvollstaendig\"}");
+      return;
+    }
+    new_title = json_string_value(req.body, "g_title").substr(0, 64);
+    new_subtitle = json_string_value(req.body, "g_subtitle").substr(0, 64);
+    new_public_access = json_bool_value(req.body, "g_public", public_access);
+    new_scene_mode = json_bool_value(req.body, "g_scene_mode", scene_mode);
+    new_feedback_timeout_ms = std::clamp<uint32_t>(json_uint_value(req.body, "g_feedback_timeout", feedback_timeout_ms),
+                                                   cfg::MIN_FEEDBACK_TIMEOUT_MS, cfg::MAX_FEEDBACK_TIMEOUT_MS);
+    new_taster_debounce_ms = std::clamp<uint32_t>(json_uint_value(req.body, "g_taster_debounce", taster_debounce_ms),
+                                                  cfg::MIN_DEBOUNCE_MS, cfg::MAX_DEBOUNCE_MS);
+  }
+
+  if (load_network) {
+    if (!parse_import_ipv4(req.body, "n_ip", new_static_ip) ||
+        !parse_import_ipv4(req.body, "n_subnet", new_static_sn) ||
+        !parse_import_ipv4(req.body, "n_gateway", new_static_gw)) {
+      send_response(sn, "400 Bad Request", "application/json", "{\"ok\":false,\"error\":\"sektion netzwerk ungueltig\"}");
+      return;
+    }
+  }
+
+  if (load_relais) {
+    const std::vector<bool> en = json_bool_list(req.body, "r_enabled");
+    const std::vector<int> type = json_int_list(req.body, "r_type");
+    const std::vector<std::string> names = json_string_list(req.body, "r_names", 32);
+    const std::vector<bool> low = json_bool_list(req.body, "r_low");
+    const std::vector<bool> imp = json_bool_list(req.body, "r_imp");
+    const std::vector<int> impms = json_int_list(req.body, "r_impms");
+    const std::vector<int> out = json_int_list(req.body, "r_out");
+    const std::vector<int> role = json_int_list(req.body, "r_role");
+    const std::vector<bool> rlow = json_bool_list(req.body, "r_rlow");
+    if (!require_bool_list_size(en, cfg::MAX_RELAIS) || !require_list_size(type, cfg::MAX_RELAIS) || !require_list_size(names, cfg::MAX_RELAIS) ||
+        !require_bool_list_size(low, cfg::MAX_RELAIS) || !require_bool_list_size(imp, cfg::MAX_RELAIS) || !require_list_size(impms, cfg::MAX_RELAIS) ||
+        !require_list_size(out, cfg::MAX_RELAIS * cfg::MAX_OUTPUTS) || !require_list_size(role, cfg::MAX_RELAIS * cfg::MAX_OUTPUTS) ||
+        !require_bool_list_size(rlow, cfg::MAX_RELAIS * cfg::MAX_OUTPUTS)) {
+      send_response(sn, "400 Bad Request", "application/json", "{\"ok\":false,\"error\":\"sektion relais unvollstaendig\"}");
+      return;
+    }
+    for (uint8_t r = 0; r < cfg::MAX_RELAIS; ++r) {
+      Relais &rl = new_relais[r];
+      rl.enabled = en[r];
+      rl.type = (type[r] == 1) ? RelayType::Quad : (type[r] == 2) ? RelayType::Dual : RelayType::Simple;
+      rl.name = names[r];
+      rl.active_low = low[r];
+      rl.impulse = imp[r];
+      rl.impulse_ms = std::clamp<uint16_t>(static_cast<uint16_t>(impms[r]), cfg::MIN_IMPULSE_MS, cfg::MAX_IMPULSE_MS);
+      for (uint8_t k = 0; k < cfg::MAX_OUTPUTS; ++k) {
+        const size_t idx = static_cast<size_t>(r) * cfg::MAX_OUTPUTS + k;
+        rl.out_gpio[k] = (output_pool_index(out[idx]) >= 0) ? static_cast<int8_t>(out[idx]) : -1;
+        rl.in_role[k] = (role[idx] >= 0 && role[idx] <= 2) ? static_cast<uint8_t>(role[idx]) : 0;
+        rl.in_active_low[k] = rlow[idx];
+      }
+      if (rl.active_output > outputs_count(rl)) rl.active_output = 0;
+    }
+    resolve_gpios_for(new_relais);
+    std::array<int, 8> used_by;
+    used_by.fill(-1);
+    for (uint8_t r = 0; r < cfg::MAX_RELAIS; ++r) {
+      const Relais &rl = new_relais[r];
+      if (!rl.enabled) continue;
+      const uint8_t n = outputs_count(rl);
+      for (uint8_t k = 0; k < n; ++k) {
+        const int g = rl.out_gpio[k];
+        const int pi = output_pool_index(g);
+        if (pi < 0) {
+          err += "Relais " + std::to_string(r + 1) + ": Ausgang " + std::to_string(k + 1) + " hat keine gueltige GPIO. ";
+          continue;
+        }
+        if (used_by[pi] >= 0) err += "GPIO GP" + std::to_string(g) + " doppelt belegt (Relais " + std::to_string(used_by[pi] + 1) + " und Relais " + std::to_string(r + 1) + "). ";
+        else used_by[pi] = r;
+      }
+    }
+    if (!err.empty()) {
+      send_response(sn, "200 OK", "application/json", "{\"ok\":false,\"error\":\"" + json_escape(err) + "\"}");
+      return;
+    }
+  }
+
+  if (load_buttons) {
+    const std::vector<bool> en = json_bool_list(req.body, "btn_enabled");
+    const std::vector<std::string> names = json_string_list(req.body, "btn_names", 32);
+    const std::vector<int> rels = json_int_list(req.body, "btn_relais");
+    const std::vector<int> ins = json_int_list(req.body, "btn_input");
+    if (!require_bool_list_size(en, cfg::MAX_BUTTONS) || !require_list_size(names, cfg::MAX_BUTTONS) ||
+        !require_list_size(rels, cfg::MAX_BUTTONS) || !require_list_size(ins, cfg::MAX_BUTTONS)) {
+      send_response(sn, "400 Bad Request", "application/json", "{\"ok\":false,\"error\":\"sektion buttons unvollstaendig\"}");
+      return;
+    }
+    std::array<int, cfg::MAX_RELAIS * cfg::MAX_OUTPUTS> btn_by;
+    btn_by.fill(-1);
+    err.clear();
+    for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
+      if (!en[b]) continue;
+      const int r = rels[b];
+      if (r < 0 || r >= cfg::MAX_RELAIS) { err += "Button " + std::to_string(b + 1) + ": kein Relais zugeordnet. "; continue; }
+      const Relais &rl = new_relais[r];
+      if (!rl.enabled) { err += "Button " + std::to_string(b + 1) + ": Relais " + std::to_string(r + 1) + " ist nicht aktiv. "; continue; }
+      if (!rl.valid) { err += "Button " + std::to_string(b + 1) + ": Relais " + std::to_string(r + 1) + " hat keine gueltige GPIO-Zuordnung. "; continue; }
+      const int k = ins[b];
+      if (k < 0 || k >= outputs_count(rl)) { err += "Button " + std::to_string(b + 1) + ": Eingang " + std::to_string(k + 1) + " existiert bei Relais " + std::to_string(r + 1) + " nicht. "; continue; }
+      const int key = r * cfg::MAX_OUTPUTS + k;
+      if (btn_by[key] >= 0) err += "Button " + std::to_string(b + 1) + " und Button " + std::to_string(btn_by[key] + 1) + " steuern denselben Relais-Eingang. ";
+      else btn_by[key] = b;
+    }
+    if (!err.empty()) {
+      send_response(sn, "200 OK", "application/json", "{\"ok\":false,\"error\":\"" + json_escape(err) + "\"}");
+      return;
+    }
+    for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
+      Button &bt = new_buttons[b];
+      bt.enabled = en[b];
+      bt.name = names[b];
+      bt.relais_idx = (rels[b] >= 0 && rels[b] < cfg::MAX_RELAIS) ? static_cast<int8_t>(rels[b]) : -1;
+      bt.input_idx = (ins[b] >= 0 && ins[b] < cfg::MAX_OUTPUTS) ? static_cast<uint8_t>(ins[b]) : 0;
+    }
+  }
+
+  if (load_scenes) {
+    bool sc_en[cfg::SCENE_COUNT];
+    std::string sc_name[cfg::SCENE_COUNT];
+    uint8_t sc_act[cfg::SCENE_COUNT][cfg::MAX_BUTTONS];
+    for (uint8_t s = 0; s < cfg::SCENE_COUNT; ++s) {
+      const std::string p = "s" + std::to_string(s) + "_";
+      if (!json_has_key(req.body, p + "en") || !json_has_key(req.body, p + "name") || !json_has_key(req.body, p + "act")) {
+        send_response(sn, "400 Bad Request", "application/json", "{\"ok\":false,\"error\":\"sektion szenen unvollstaendig\"}");
+        return;
+      }
+      sc_en[s] = json_bool_value(req.body, p + "en", false);
+      sc_name[s] = json_string_value(req.body, p + "name").substr(0, 32);
+      const std::string act = json_string_value(req.body, p + "act");
+      if (act.size() != cfg::MAX_BUTTONS) {
+        send_response(sn, "400 Bad Request", "application/json", "{\"ok\":false,\"error\":\"sektion szenen ungueltig\"}");
+        return;
+      }
+      for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
+        const char c = act[b];
+        sc_act[s][b] = (c == '1') ? 1 : (c == '0') ? 0 : 2;
+      }
+    }
+    err.clear();
+    for (uint8_t s = 0; s < cfg::SCENE_COUNT; ++s) {
+      if (!sc_en[s]) continue;
+      std::array<uint8_t, cfg::MAX_RELAIS> on_per_relais;
+      on_per_relais.fill(0);
+      for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
+        if (sc_act[s][b] != 1) continue;
+        const Button &bt = new_buttons[b];
+        if (!bt.enabled || bt.relais_idx < 0 || bt.relais_idx >= cfg::MAX_RELAIS) continue;
+        const Relais &rl = new_relais[bt.relais_idx];
+        if (rl.type != RelayType::Simple && ++on_per_relais[bt.relais_idx] == 2)
+          err += "Szene " + std::to_string(s + 1) + ": mehrere Eingaenge von Relais " + std::to_string(bt.relais_idx + 1) + " auf 'Ein' (nur einer moeglich). ";
+      }
+    }
+    if (!err.empty()) {
+      send_response(sn, "200 OK", "application/json", "{\"ok\":false,\"error\":\"" + json_escape(err) + "\"}");
+      return;
+    }
+    for (uint8_t s = 0; s < cfg::SCENE_COUNT; ++s) {
+      new_scenes[s].enabled = sc_en[s];
+      new_scenes[s].name = sc_name[s];
+      for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) new_scenes[s].action[b] = sc_act[s][b];
+    }
+  }
+
+  bool reauth = false;
+  if (load_auth) {
+    const std::vector<std::string> user_names = json_string_list(req.body, "user_names", 31);
+    const std::vector<std::string> user_hashes = json_string_list(req.body, "user_hashes", 64);
+    const std::vector<std::string> user_roles = json_string_list(req.body, "user_roles", 8);
+    const std::vector<std::string> key_values = json_string_list(req.body, "key_values", 16);
+    const std::vector<std::string> key_comments = json_string_list(req.body, "key_comments", 64);
+    if (!validate_auth_import_data(user_names, user_hashes, user_roles, key_values, key_comments, err)) {
+      send_response(sn, "400 Bad Request", "application/json", "{\"ok\":false,\"error\":\"" + json_escape(err) + "\"}");
+      return;
+    }
+    new_users.clear();
+    for (size_t i = 0; i < user_names.size(); ++i) {
+      new_users[normalize_username(user_names[i])] = {lower(trim(user_hashes[i])), trim(user_roles[i])};
+    }
+    new_api_keys.clear();
+    for (size_t i = 0; i < key_values.size(); ++i) {
+      new_api_keys.push_back({trim(key_values[i]), key_comments[i]});
+    }
+    reauth = true;
+  }
+
+  const std::string warn = check_all_consistency_impl(new_relais, new_buttons, new_scenes);
+
+  {
+    StateLock lock;
+    if (load_general) {
+      site_title = new_title;
+      site_subtitle = new_subtitle;
+      public_access = new_public_access;
+      scene_mode = new_scene_mode;
+      feedback_timeout_ms = new_feedback_timeout_ms;
+      taster_debounce_ms = new_taster_debounce_ms;
+    }
+    if (load_relais) relais = new_relais;
+    if (load_buttons) buttons = new_buttons;
+    if (load_scenes) scenes = new_scenes;
+    if (load_relais) {
+      resolve_gpios();
+      apply_all_outputs();
+      configure_inputs();
+    } else if (load_buttons || load_scenes) {
+      update_scene_feedback_errors();
+    }
+    if ((load_relais || load_buttons || load_scenes) && active_scene >= 0 &&
+        (active_scene >= cfg::SCENE_COUNT || !scenes[active_scene].enabled)) active_scene = -1;
+  }
+  if (load_network) {
+    static_ip = new_static_ip;
+    static_sn = new_static_sn;
+    static_gw = new_static_gw;
+  }
+  if (load_auth) {
+    users_db = std::move(new_users);
+    api_keys_db = std::move(new_api_keys);
+    sessions.clear();
+    persistent_admin_tokens.clear();
+  }
+
+  save_config();
+  broadcast_state();
+  esp_link_display_dirty = true;
+  if (!warn.empty())
+    send_response(sn, "200 OK", "application/json", "{\"ok\":true,\"warning\":\"" + json_escape(warn) + "\",\"reauth\":" + std::string(reauth ? "true" : "false") + "}");
+  else
+    send_response(sn, "200 OK", "application/json", "{\"ok\":true,\"reauth\":" + std::string(reauth ? "true" : "false") + "}");
+}
+
 static void handle_scenes_post(uint8_t sn, const HttpRequest &req) {
   // Eingaben zunaechst in temporaere Struktur lesen und pruefen (kein Lock noetig).
   const bool new_mode = json_bool_value(req.body, "mode", scene_mode);
@@ -2491,7 +2865,7 @@ static void handle_http(uint8_t sn, const HttpRequest &req) {
     std::string next = form["next"];
     if (next.empty() || next[0] != '/' || next.find("//") != std::string::npos) next = "/config";
     auto it = users_db.find(normalize_username(form["username"]));
-    const bool needs_admin = (next == "/config" || next == "/relais" || next == "/network" || next == "/scenes" || next == "/admin");
+    const bool needs_admin = (next == "/config" || next == "/relais" || next == "/network" || next == "/scenes" || next == "/admin" || next == "/config_load");
     if (it != users_db.end() && it->second.hash == sha256_hex(form["password"]) && needs_admin && it->second.role != "admin") {
       send_response(sn, "200 OK", "text/html; charset=utf-8", build_login_html(next, true, session_from_headers(req), form["username"], form["username"] + " hat keine Admin-Rechte"));
     } else if (it != users_db.end() && it->second.hash == sha256_hex(form["password"])) {
@@ -2583,6 +2957,14 @@ static void handle_http(uint8_t sn, const HttpRequest &req) {
       if (req.method == "GET") send_redirect(sn, "/login?next=/export");
       else send_response(sn, "403 Forbidden", "application/json", "{\"error\":\"forbidden\"}");
     } else if (req.method == "GET") send_response(sn, "200 OK", "text/html; charset=utf-8", build_export_html(session), "Cache-Control: no-store\r\n");
+    else send_response(sn, "405 Method Not Allowed", "text/plain", "Method not allowed");
+  } else if (req.path == "/config_load") {
+    Session *session = session_from_headers(req);
+    if (!session || session->role != "admin") {
+      if (req.method == "GET") send_redirect(sn, "/login?next=/config_load");
+      else send_response(sn, "403 Forbidden", "application/json", "{\"error\":\"forbidden\"}");
+    } else if (req.method == "GET") send_response(sn, "200 OK", "text/html; charset=utf-8", build_config_load_html(session));
+    else if (req.method == "POST") handle_config_load_post(sn, req);
     else send_response(sn, "405 Method Not Allowed", "text/plain", "Method not allowed");
   } else if (req.path == "/admin") {
     Session *session = session_from_headers(req);
