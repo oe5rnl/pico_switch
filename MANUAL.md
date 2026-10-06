@@ -209,7 +209,7 @@ Beim **Speichern** prüft der Pico die Konfiguration auf Konsistenz:
     der jetzt inaktiv/nicht zugeordnet ist; eine Szene ohne Aktion.
 
 Die horizontale Menüleiste ist auf allen Admin-Seiten gleich (Übersicht, Speichern,
-Buttons, Relais, Szenen, Benutzer/API, Network, Abmelden); die aktuelle Seite ist rot
+Buttons, Relais, Szenen, Benutzer/API, Network, Export Config, Abmelden); die aktuelle Seite ist rot
 hervorgehoben.
 
 ### 5.1 Buttons (Seite „Buttons")
@@ -309,6 +309,51 @@ Ein neues Passwort muss mindestens vier Zeichen lang sein. Der eigene Benutzer k
 
 API-Keys sind für externe Programme vorgesehen und sollten wie Passwörter geschützt werden. Benutzer tragen einen API-Key im HTTP-Header `X-API-Key` ein.
 
+#### Zugriffsrechte und Schnittstellenschutz
+
+Der Pico unterscheidet drei Wege, einen Zugriff zu erlauben:
+
+- **Anmeldung (Session):** Nach dem Login wird ein Sitzungs-Cookie gesetzt (`HttpOnly`,
+  `SameSite=Strict`); Passwörter werden nur als SHA-256-Hash gespeichert und verglichen.
+  Eine Benutzer-Sitzung ist 30 Minuten gültig. Eine Administrator-Sitzung bleibt länger
+  schaltberechtigt, sodass ein Administrator auch nach Ablauf der 30 Minuten noch schalten kann.
+- **API-Key:** Für externe Programme. Der Key wird im HTTP-Header `X-API-Key` übergeben
+  (die Variante als URL-Parameter `?api_key=` ist möglich, landet aber im Klartext in der
+  URL und sollte vermieden werden). API-Keys wirken nur, wenn mindestens ein Key angelegt ist.
+- **Öffentlicher Zugriff:** Ist er aktiviert (Seite **Buttons**), dürfen auch Geräte ohne
+  Anmeldung schalten und den Status lesen.
+
+Die administrativen Seiten verlangen zusätzlich hart die Rolle `admin`. Ein API-Key oder der
+öffentliche Zugriff geben die Konfigurationsseiten **nicht** frei – dort ist immer eine
+Administrator-Anmeldung nötig.
+
+Daraus ergeben sich folgende Rechte:
+
+| Aktion | Gast (öffentlicher Zugriff) | API-Key | Benutzer (`user`) | Administrator (`admin`) |
+|---|---|---|---|---|
+| Relais und Szenen schalten | nur bei öffentlichem Zugriff | ja | ja | ja |
+| Status/Live-Updates lesen | ja | ja | ja | ja |
+| Eigenes Passwort ändern | nein | nein | ja | ja |
+| Buttons, Relais, Szenen konfigurieren | nein | nein | nein | ja |
+| Netzwerk einstellen | nein | nein | nein | ja |
+| Benutzer und API-Keys verwalten | nein | nein | nein | ja |
+| Export Config ansehen/herunterladen | nein | nein | nein | ja |
+
+Kurz zusammengefasst, getrennt nach Betriebsart:
+
+- **Ohne öffentlichen Zugriff** (Standard): Schalten und Statuslesen setzen eine Anmeldung
+  oder einen gültigen API-Key voraus. Ein **Benutzer** darf schalten, den Status sehen und
+  sein eigenes Passwort ändern. Ein **API-Key** entspricht auf Schalt- und Status-Ebene einem
+  Benutzer, hat aber keinen Administrator-Zugriff. Ein nicht angemeldetes Gerät ohne Key
+  bekommt weder Bedienung noch Status.
+- **Mit öffentlichem Zugriff:** Jedes Gerät im Netz darf ohne Anmeldung schalten und den
+  Status lesen – auch ohne Benutzerkonto oder API-Key. Die zusätzlichen Benutzerrechte
+  (eigenes Passwort ändern) gelten weiterhin nur für angemeldete Benutzer.
+
+In **beiden** Betriebsarten gilt: Die Anlage konfigurieren (Buttons, Relais, Szenen,
+Netzwerk, Benutzer/API-Keys, Export Config) darf ausschließlich ein **Administrator** nach
+Anmeldung – öffentlicher Zugriff und API-Keys ändern daran nichts.
+
 ### 5.6 Netzwerk
 
 Unter **Network** werden der aktuelle Modus, die MAC-Adresse, IP-Adresse, Subnetzmaske und das Gateway angezeigt. Dort lassen sich außerdem die gespeicherte statische IP-Adresse, Subnetzmaske und das Gateway ändern.
@@ -319,6 +364,24 @@ Ob beim Start DHCP oder die statische Konfiguration verwendet wird, bestimmt der
 - GP15 LOW: statische Konfiguration.
 
 Gespeicherte Netzwerkwerte werden erst beim nächsten Start im statischen Modus wirksam. Falsche Werte können die Webseite unerreichbar machen. Falls dieser Fall eintritt, über GP15 auf DHCP schalten. Vor einer Änderung sollten IP-Adresse, Subnetzmaske und Gateway mit der zuständigen Netzwerkadministration abgestimmt werden.
+
+### 5.7 Export Config
+
+Unter **Export Config** erhalten Administratoren einen vollständigen Schnappschuss des Systems – als übersichtliche Webseite und als herunterladbare JSON-Datei. Die Seite dient der Dokumentation, Sicherung und Fehlersuche; sie ändert selbst keine Einstellungen.
+
+Angezeigt werden:
+
+- **Allgemein:** Titel, Untertitel, öffentlicher Zugriff, Szenen-Modus, Rückmelde- und Entprellzeit, Firmware-Versionen (Pico und ESP32), Persist-Version und Uptime.
+- **Netzwerk:** gespeicherte statische IP/Subnetz/Gateway sowie der aktuelle Modus mit MAC-, IP-, Subnetz-, Gateway- und DNS-Werten und dem LAN-Link-Status.
+- **Relais:** je Relais Typ, Name, Polarität, Impulszeit und je Ausgang die Ausgangs-GPIO, die Eingangsrolle (keine/Rückmeldung/Taster) mit Eingangs-GPIO sowie der Live-Status (ein/aus, Impuls, Taster gedrückt, Rückmeldefehler).
+- **Buttons:** je Button Aktiv-Status, Name, Zuordnung zu Relais/Ausgang, die verwendeten GPIOs, der Zustand und ein eventueller Rückmeldefehler.
+- **Szenen:** je Szene Name, Aktionen und Status.
+- **Benutzer und API-Keys**, **Laufzeitstatus** (aktive Szene, Konsistenzhinweise, Flash-Schreibsperre), **aktive Sessions** und – bei öffentlichem Zugriff – aktive **Gäste**.
+- Am Ende die komplette **JSON**-Darstellung.
+
+Mit **JSON herunterladen** wird der Schnappschuss als Datei gespeichert; **Aktualisieren** lädt die Seite neu.
+
+> **Achtung:** Der Export enthält **Passwort-Hashes und API-Keys im Klartext**. Die Webseite und die heruntergeladene Datei sind vertraulich zu behandeln. Der Browser speichert die Seite nicht zwischen.
 
 ## 6. GPIO-Belegung
 

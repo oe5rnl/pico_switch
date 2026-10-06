@@ -97,6 +97,7 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
 | GET/POST | `/relais` | „Relais" (Admin): je Relais (1–8) Aktiv, Typ (1-fach/2-fach/4-fach), Name, Low aktiv, Impuls+Impulszeit; je Ausgang wählbare Ausgangs-GPIO + Eingangsrolle (keine/Rückmeldung/Taster) + LOW; globale Rückmeldezeit und Taster-Entprellzeit |
 | GET/POST | `/network` | Statische IP-Einstellungen |
 | GET/POST | `/admin` | Benutzer-/API-Key-Verwaltung |
+| GET | `/export` | „Export Config" (Admin): vollständiger Schnappschuss (gespeicherte Config + Laufzeitstatus + Sessions/Gäste + Benutzer/API-Keys inkl. Passwort-Hashes im Klartext) als Webseite + JSON-Download; `Cache-Control: no-store` |
 | GET | `/me` | Aktueller Benutzer |
 | GET | `/active_users` | Aktive Sessions/Gäste |
 | GET | `/state` | Button-Zustände (JSON: `relays`=Button-EIN, `names`, `btn_en`=aktiviert, `feedback_errors`=Rückmeldefehler je Button, `scene_mode`, `active_scene`, `scene_dirty`, `scene_errors`=Rückmeldefehler je Szene, `buttons`=Tasterdruck) |
