@@ -26,7 +26,7 @@ pico_switch/
 │       └── serial_loopback_test.cpp  # UART-Loopback-Diagnose (env loopback)
 └── pico/
     ├── upload.sh                  # Baut + flasht UF2 (Default: USB/picotool ohne BOOTSEL)
-    ├── switch_w6300_relay_native.uf2
+    ├── switch_w6300_relay.uf2
     └── switch_server/            # Pico-Firmware (C++/Pico-SDK, CMake)
         ├── CMakeLists.txt    # Targets: switch_w6300_relay, uart_loopback_test
         ├── cmake/check_persist_overlap.cmake
@@ -101,6 +101,7 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
 | GET | `/active_users` | Aktive Sessions/Gäste |
 | GET | `/state` | Button-Zustände (JSON: `relays`=Button-EIN, `names`, `btn_en`=aktiviert, `feedback_errors`=Rückmeldefehler je Button, `scene_mode`, `active_scene`, `scene_dirty`, `scene_errors`=Rückmeldefehler je Szene, `buttons`=Tasterdruck) |
 | GET/POST | `/scenes` | Szenen-Modus + Szenen konfigurieren (Aktion je **Button**, Admin) |
+| GET | `/export` | „Export Config" (Admin, Button in der Menüleiste): komplette Konfiguration + Laufzeitstatus + aktive Sessions/Gäste als Tabellen und JSON-Block, „JSON herunterladen". Enthält **Passwort-Hashes und API-Keys im Klartext** (keine Session-Tokens). Daten aus `export_config_json()` |
 | GET | `/events` | Server-Sent Events (Live-Status) |
 | POST | `/relay/<idx>/<on\|off\|toggle>` | Button `idx` (0–7) schalten/umschalten |
 | POST | `/scene/<idx>/activate` | Szene `idx` aktivieren |

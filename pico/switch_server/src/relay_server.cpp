@@ -1482,19 +1482,21 @@ static std::string pw_eye_btn() {
 
 // Einheitliche horizontale Menueleiste (auf allen Admin-Seiten identisch). Der
 // Speichern-Button ruft die seiteneigene save()-Funktion auf; der Button der
-// aktuellen Seite (active = "config"/"relais"/"scenes") wird rot hervorgehoben.
-static std::string page_nav_actions(const char *active) {
+// aktuellen Seite (active = "config"/"relais"/"scenes"/"export") wird rot hervorgehoben.
+// Seiten ohne Speichern-Funktion (z. B. Export) blenden den Button per show_save=false aus.
+static std::string page_nav_actions(const char *active, bool show_save = true) {
   auto red = [&](const char *key) {
     return std::string(active && std::strcmp(active, key) == 0 ? " style=\"color:#ff6b6b\"" : "");
   };
-  return "<div class=\"actions\">"
-         "<button onclick=\"location.href='/'\">Uebersicht</button>"
-         "<button class=\"save\" onclick=\"save()\">Speichern</button>"
+  return std::string("<div class=\"actions\">"
+         "<button onclick=\"location.href='/'\">Uebersicht</button>") +
+         (show_save ? "<button class=\"save\" onclick=\"save()\">Speichern</button>" : "") +
          "<button" + red("config") + " onclick=\"location.href='/config'\">Buttons</button>"
          "<button" + red("relais") + " onclick=\"location.href='/relais'\">Relais</button>"
          "<button" + red("scenes") + " onclick=\"location.href='/scenes'\">Szenen</button>"
          "<button onclick=\"location.href='/admin'\">Benutzer/API</button>"
          "<button onclick=\"location.href='/network'\">Network</button>"
+         "<button" + red("export") + " onclick=\"location.href='/export'\">Export Config</button>"
          "<button class=\"danger\" onclick=\"location.href='/logout'\">Abmelden</button>"
          "</div>";
 }
@@ -2217,6 +2219,201 @@ static std::string build_scenes_html(const Session *session) {
   return html;
 }
 
+// ---- Export Config ---------------------------------------------------------
+// Vollstaendiger Schnappschuss: gespeicherte Konfiguration (inkl. Passwort-Hashes
+// und API-Keys) + Laufzeitstatus + aktive Sessions. Nur fuer Admins (/export).
+static std::string exp_str(const std::string &v) { return "\"" + json_escape(v) + "\""; }
+static const char *exp_bool(bool v) { return v ? "true" : "false"; }
+static const char *relay_type_text(RelayType t) {
+  switch (t) {
+    case RelayType::Quad: return "4-fach";
+    case RelayType::Dual: return "2-fach";
+    default: return "1-fach";
+  }
+}
+static const char *in_role_text(uint8_t role) {
+  switch (static_cast<InRole>(role)) {
+    case InRole::Feedback: return "Rueckmeldung";
+    case InRole::Taster: return "Taster";
+    default: return "keine";
+  }
+}
+
+static std::string export_config_json() {
+  // W6300-Zugriff (ctlnetwork) bewusst ausserhalb des Locks.
+  const wiz_NetInfo net = current_net_info();
+  prune_sessions();
+  prune_guest_visitors();
+  const uint32_t now = millis32();
+
+  std::string o = "{\"export\":{\"firmware_pico\":" + exp_str(FW_VERSION) +
+                  ",\"persist_version\":" + std::to_string(cfg::PERSIST_VERSION) +
+                  ",\"uptime_ms\":" + std::to_string(now) + "}";
+
+  o += ",\"network\":{\"static\":{\"ip\":" + exp_str(format_ipv4(static_ip.data())) +
+       ",\"subnet\":" + exp_str(format_ipv4(static_sn.data())) +
+       ",\"gateway\":" + exp_str(format_ipv4(static_gw.data())) + "}";
+  o += ",\"current\":{\"mode\":" + exp_str(network_mode_text(net)) +
+       ",\"dhcp_requested\":" + exp_bool(g_use_dhcp) +
+       ",\"dhcp_assigned\":" + exp_bool(dhcp_assigned) +
+       ",\"link_up\":" + exp_bool(lan_link_up) +
+       ",\"mac\":" + exp_str(format_mac(net.mac)) +
+       ",\"ip\":" + exp_str(format_ipv4(net.ip)) +
+       ",\"subnet\":" + exp_str(format_ipv4(net.sn)) +
+       ",\"gateway\":" + exp_str(format_ipv4(net.gw)) +
+       ",\"dns\":" + exp_str(format_ipv4(net.dns)) + "}}";
+
+  {
+    StateLock lock;
+    o += ",\"general\":{\"title\":" + exp_str(site_title) +
+         ",\"subtitle\":" + exp_str(site_subtitle) +
+         ",\"public_access\":" + exp_bool(public_access) +
+         ",\"scene_mode\":" + exp_bool(scene_mode) +
+         ",\"feedback_timeout_ms\":" + std::to_string(feedback_timeout_ms) +
+         ",\"taster_debounce_ms\":" + std::to_string(taster_debounce_ms) +
+         ",\"firmware_esp32\":" + exp_str(esp_fw_version) + "}";
+
+    o += ",\"relais\":[";
+    for (uint8_t r = 0; r < cfg::MAX_RELAIS; ++r) {
+      const Relais &rl = relais[r];
+      if (r) o += ',';
+      o += "{\"index\":" + std::to_string(r + 1) +
+           ",\"enabled\":" + exp_bool(rl.enabled) +
+           ",\"type\":" + exp_str(relay_type_text(rl.type)) +
+           ",\"name\":" + exp_str(rl.name) +
+           ",\"active_low\":" + exp_bool(rl.active_low) +
+           ",\"impulse\":" + exp_bool(rl.impulse) +
+           ",\"impulse_ms\":" + std::to_string(rl.impulse_ms) +
+           ",\"valid\":" + exp_bool(rl.valid) +
+           ",\"active_output\":" + std::to_string(rl.active_output) + ",\"outputs\":[";
+      for (uint8_t k = 0; k < outputs_count(rl); ++k) {
+        if (k) o += ',';
+        const bool in_level = rl.in_gpio[k] >= 0 && gpio_get(static_cast<uint>(rl.in_gpio[k])) != 0;
+        o += "{\"output\":" + std::to_string(k + 1) +
+             ",\"out_gpio\":" + std::to_string(rl.out_gpio[k]) +
+             ",\"in_gpio\":" + std::to_string(rl.in_gpio[k]) +
+             ",\"in_role\":" + exp_str(in_role_text(rl.in_role[k])) +
+             ",\"in_active_low\":" + exp_bool(rl.in_active_low[k]) +
+             ",\"on\":" + exp_bool(rl.active_output == k + 1) +
+             ",\"in_level_high\":" + (rl.in_gpio[k] >= 0 ? exp_bool(in_level) : "null") +
+             ",\"feedback_error\":" + exp_bool(output_has_feedback_error(static_cast<int8_t>(r), k)) +
+             ",\"taster_pressed\":" + exp_bool(rl.btn_pressed[k]) +
+             ",\"impulse_active\":" + exp_bool(rl.imp_active[k]) + "}";
+      }
+      o += "]}";
+    }
+    o += "]";
+
+    o += ",\"buttons\":[";
+    for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
+      const Button &bt = buttons[b];
+      if (b) o += ',';
+      o += "{\"index\":" + std::to_string(b + 1) +
+           ",\"enabled\":" + exp_bool(bt.enabled) +
+           ",\"name\":" + exp_str(bt.name) +
+           ",\"relais\":" + (bt.relais_idx >= 0 ? std::to_string(bt.relais_idx + 1) : std::string("null")) +
+           ",\"output\":" + std::to_string(bt.input_idx + 1) +
+           ",\"on\":" + exp_bool(button_is_on(b)) +
+           ",\"feedback_error\":" + exp_bool(button_feedback_error(b)) +
+           ",\"taster_pressed\":" + exp_bool(button_taster_pressed(b)) + "}";
+    }
+    o += "]";
+
+    // actions je Button: 0=aus, 1=ein (1-fach: umschalten), 2=unveraendert
+    o += ",\"scenes\":[";
+    for (uint8_t s = 0; s < cfg::SCENE_COUNT; ++s) {
+      if (s) o += ',';
+      o += "{\"index\":" + std::to_string(s + 1) +
+           ",\"enabled\":" + exp_bool(scenes[s].enabled) +
+           ",\"name\":" + exp_str(scenes[s].name) + ",\"actions\":[";
+      for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
+        if (b) o += ',';
+        o += std::to_string(scenes[s].action[b]);
+      }
+      o += "],\"active\":" + std::string(exp_bool(active_scene == s)) +
+           ",\"feedback_error\":" + exp_bool(scene_feedback_error[s]) + "}";
+    }
+    o += "]";
+
+    o += ",\"runtime\":{\"active_scene\":" + (active_scene >= 0 ? std::to_string(active_scene + 1) : std::string("null")) +
+         ",\"scene_dirty\":" + exp_bool(scene_dirty) +
+         ",\"persist_write_locked\":" + exp_bool(persist_write_locked) +
+         ",\"consistency_warnings\":" + exp_str(check_all_consistency()) + "}";
+  }
+
+  o += ",\"users\":[";
+  bool first = true;
+  for (const auto &entry : users_db) {
+    if (!first) o += ',';
+    first = false;
+    o += "{\"name\":" + exp_str(entry.first) + ",\"role\":" + exp_str(entry.second.role) +
+         ",\"password_sha256\":" + exp_str(entry.second.hash) + "}";
+  }
+  o += "],\"api_keys\":[";
+  for (size_t i = 0; i < api_keys_db.size(); ++i) {
+    if (i) o += ',';
+    o += "{\"key\":" + exp_str(api_keys_db[i].key) + ",\"comment\":" + exp_str(api_keys_db[i].comment) + "}";
+  }
+  o += "],\"sessions\":[";
+  for (size_t i = 0; i < sessions.size(); ++i) {
+    if (i) o += ',';
+    const uint32_t rem = expired(sessions[i].expires) ? 0 : sessions[i].expires - now;
+    o += "{\"username\":" + exp_str(sessions[i].username) + ",\"role\":" + exp_str(sessions[i].role) +
+         ",\"remaining_s\":" + std::to_string(rem / 1000) + "}";
+  }
+  o += "],\"guests\":[";
+  for (size_t i = 0; i < guest_visitors.size(); ++i) {
+    if (i) o += ',';
+    const uint32_t rem = expired(guest_visitors[i].expires) ? 0 : guest_visitors[i].expires - now;
+    o += "{\"ip\":" + exp_str(guest_visitors[i].ip) + ",\"remaining_s\":" + std::to_string(rem / 1000) + "}";
+  }
+  o += "]}";
+  return o;
+}
+
+static std::string build_export_html(const Session *session) {
+  std::string data = export_config_json();
+  // Inline-<script>-Einbettung absichern: "</" darf den Script-Block nicht beenden.
+  for (size_t p = data.find("</"); p != std::string::npos; p = data.find("</", p + 3)) data.replace(p, 2, "<\\/");
+  std::string html = "<!DOCTYPE html><html lang=\"de\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + html_escape(site_title) + " - Export Config</title><style>html,body{margin:0}body{box-sizing:border-box;font-family:'Segoe UI',sans-serif;background:#121212;color:#e0e0e0;min-height:100vh;padding:108px 24px 24px}" + page_header_css() +
+      "h1{color:#4dabf7}h2{font-size:1.05rem;color:#4dabf7;margin:0 0 12px}.card{background:#1e1e1e;padding:20px;max-width:1100px;border:1px solid #2d2d2d;margin-bottom:16px;overflow-x:auto}.actions{margin:0 0 16px}.actions button{margin:0}button{padding:10px 14px;margin:4px;background:#1a3a5c;color:#4dabf7;border:1px solid #1e5a9e;font-weight:700}.save{background:#1b4332;color:#51cf66;border-color:#2d6a4f}.danger{background:#3d1515;color:#ff6b6b;border-color:#7a2020}"
+      "table{width:100%;border-collapse:collapse;font-size:.85rem}td,th{border-bottom:1px solid #333;padding:6px 8px;text-align:left;vertical-align:top}th{color:#9e9e9e;font-weight:600}tr.off td{color:#6e6e6e}code{font-family:monospace;color:#8bd5ff;word-break:break-all}.ok{color:#51cf66}.err{color:#ff6b6b}.muted{color:#8b949e}pre{background:#0d1117;border:1px solid #30363d;padding:12px;color:#c9d1d9;font-size:.78rem;max-height:600px;overflow:auto;white-space:pre}.warn{color:#ffb84d}</style></head><body>" +
+      page_header_html(session, true) +
+      "<h1>Export Config</h1>" + page_nav_actions("export", false) +
+      "<div class=\"card\"><button class=\"save\" onclick=\"dl()\">JSON herunterladen</button><button onclick=\"location.reload()\">Aktualisieren</button><span class=\"warn\" style=\"margin-left:8px\">Enth\xc3\xa4lt Passwort-Hashes und API-Keys im Klartext \xe2\x80\x93 Datei vertraulich behandeln.</span></div>"
+      "<div id=\"out\"></div>"
+      "<script>" + std::string(sse_conn_script()) + "const D=" + data + ";" +
+      R"JS(function esc(v){return String(v==null?'':v).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function yn(b){return b?'<span class="ok">ja</span>':'<span class="muted">nein</span>'}
+function gp(g){return g>=0?'GP'+g:'\u2013'}
+function card(t,h){return '<div class="card"><h2>'+esc(t)+'</h2>'+h+'</div>'}
+function tbl(h,rows,cls){return '<table><tr>'+h.map(x=>'<th>'+esc(x)+'</th>').join('')+'</tr>'+(rows.length?rows.map((r,i)=>'<tr'+(cls&&cls[i]?' class="'+cls[i]+'"':'')+'>'+r.map(c=>'<td>'+c+'</td>').join('')+'</tr>').join(''):'<tr><td colspan="'+h.length+'" class="muted">\u2013</td></tr>')+'</table>'}
+function kv(a){return tbl(['Einstellung','Wert'],a.map(([k,v])=>[esc(k),v]))}
+function dur(s){const m=Math.floor(s/60);return m+' min '+(s%60)+' s'}
+function btnLabel(b){const x=D.buttons[b];return 'Button '+(b+1)+(x&&x.name?' ('+x.name+')':'')}
+function isSimpleBtn(b){const x=D.buttons[b];if(!x||x.relais==null)return false;const r=D.relais[x.relais-1];return r&&r.type==='1-fach'}
+function actText(b,a){if(a===2)return null;if(isSimpleBtn(b))return 'Umschalten';return a===1?'Ein':'Aus'}
+const g=D.general,n=D.network,rt=D.runtime;let h='';
+h+=card('Allgemein',kv([['Titel',esc(g.title)],['Untertitel',esc(g.subtitle)],['\u00d6ffentlicher Zugriff',yn(g.public_access)],['Szenen-Modus',yn(g.scene_mode)],['R\u00fcckmeldezeit',g.feedback_timeout_ms+' ms'],['Taster-Entprellzeit',g.taster_debounce_ms+' ms'],['Firmware pico','<code>'+esc(D.export.firmware_pico)+'</code>'],['Firmware esp32','<code>'+esc(g.firmware_esp32)+'</code>'],['Persist-Version',D.export.persist_version],['Export erstellt',esc(new Date().toLocaleString())+' (Uptime '+dur(Math.floor(D.export.uptime_ms/1000))+')']]));
+h+=card('Netzwerk',kv([['Statische IP','<code>'+esc(n.static.ip)+'</code>'],['Statische Subnetzmaske','<code>'+esc(n.static.subnet)+'</code>'],['Statisches Gateway','<code>'+esc(n.static.gateway)+'</code>'],['Aktueller Modus',esc(n.current.mode)],['DHCP angefordert (GP15)',yn(n.current.dhcp_requested)],['DHCP-Lease erhalten',yn(n.current.dhcp_assigned)],['LAN-Link',n.current.link_up?'<span class="ok">verbunden</span>':'<span class="err">getrennt</span>'],['MAC','<code>'+esc(n.current.mac)+'</code>'],['IP','<code>'+esc(n.current.ip)+'</code>'],['Subnetzmaske','<code>'+esc(n.current.subnet)+'</code>'],['Gateway','<code>'+esc(n.current.gateway)+'</code>'],['DNS','<code>'+esc(n.current.dns)+'</code>']]));
+h+=card('Relais',tbl(['#','Aktiv','Typ','Name','Low aktiv','Impuls','G\u00fcltig','Ausg\u00e4nge (GPIO \u2013 Eingangsrolle, Status)'],D.relais.map(r=>[r.index,yn(r.enabled),esc(r.type),esc(r.name),yn(r.active_low),r.impulse?r.impulse_ms+' ms':'<span class="muted">nein</span>',r.valid?'<span class="ok">ja</span>':(r.enabled?'<span class="err">nein</span>':'<span class="muted">nein</span>'),r.outputs.map(o=>{let t='A'+o.output+': '+gp(o.out_gpio)+' \u2013 ';if(o.in_role==='keine')t+='<span class="muted">keine</span>';else t+=(o.in_role==='Taster'?'Taster':'R\u00fcckmeldung')+' '+gp(o.in_gpio)+(o.in_active_low?' (LOW)':'');if(o.in_level_high!==null)t+=' <span class="muted">['+(o.in_level_high?'H':'L')+']</span>';t+=o.on?' <span class="ok">EIN</span>':' <span class="muted">aus</span>';if(o.impulse_active)t+=' <span class="warn">Impuls</span>';if(o.taster_pressed)t+=' <span class="warn">gedr\u00fcckt</span>';if(o.feedback_error)t+=' <span class="err">R\u00fcckmeldefehler</span>';return t}).join('<br>')]),D.relais.map(r=>r.enabled?'':'off')));
+function btnGp(r,k){const o=r?r.outputs[k-1]:null;if(!o)return '<span class="muted">\u2013</span>';if(o.out_gpio<0)return 'GP \u2013';let t='Ausg. GP'+o.out_gpio;if(o.in_gpio>=0){if(o.in_role==='Rueckmeldung')t+=' \u2192 RM GP'+o.in_gpio;else if(o.in_role==='Taster')t+=' \u2192 Ta GP'+o.in_gpio}return t}
+h+=card('Buttons',tbl(['#','Aktiv','Name','Relais / Ausgang','GPIO','Zustand','R\u00fcckmeldefehler'],D.buttons.map(b=>{const r=b.relais!=null?D.relais[b.relais-1]:null;const tgt=r?'Relais '+b.relais+(r.name?' ('+esc(r.name)+')':'')+(r.outputs.length>1?' \u2013 Ausgang '+b.output:''):'<span class="muted">\u2013 keine \u2013</span>';return [b.index,yn(b.enabled),esc(b.name),tgt,btnGp(r,b.output),b.on?'<span class="ok">EIN</span>':'<span class="muted">aus</span>',b.feedback_error?'<span class="err">ja</span>':'<span class="muted">nein</span>']}),D.buttons.map(b=>b.enabled?'':'off')));
+h+=card('Szenen',tbl(['#','Aktiv','Name','Aktionen','Status'],D.scenes.map(s=>{const acts=s.actions.map((a,b)=>{const t=actText(b,a);return t?esc(btnLabel(b))+': '+t:null}).filter(x=>x);let st=s.active?'<span class="ok">aktiv</span>':'<span class="muted">\u2013</span>';if(s.feedback_error)st+=' <span class="err">R\u00fcckmeldefehler</span>';return [s.index,yn(s.enabled),esc(s.name),acts.length?acts.join('<br>'):'<span class="muted">keine</span>',st]}),D.scenes.map(s=>s.enabled?'':'off')));
+h+=card('Benutzer',tbl(['Benutzer','Rolle','Passwort-Hash (SHA-256)'],D.users.map(u=>[esc(u.name),esc(u.role),'<code>'+esc(u.password_sha256)+'</code>'])));
+h+=card('API-Keys',tbl(['Key','Kommentar'],D.api_keys.map(k=>['<code>'+esc(k.key)+'</code>',esc(k.comment)])));
+const warns=(rt.consistency_warnings||'').split(/\.\s+/).map(x=>x.trim()).filter(x=>x);
+h+=card('Laufzeitstatus',kv([['Aktive Szene',rt.active_scene!=null?rt.active_scene+(D.scenes[rt.active_scene-1].name?' ('+esc(D.scenes[rt.active_scene-1].name)+')':''):'<span class="muted">keine</span>'],['Szene manuell ver\u00e4ndert',yn(rt.scene_dirty)],['Flash-Schreibsperre',rt.persist_write_locked?'<span class="err">aktiv (Werksreset n\u00f6tig)</span>':'<span class="ok">nein</span>'],['Konsistenzpr\u00fcfung',warns.length?'<span class="warn">'+warns.map(esc).join('<br>')+'</span>':'<span class="ok">OK</span>']]));
+h+=card('Aktive Sessions',tbl(['Benutzer','Rolle','Restzeit'],D.sessions.map(s=>[esc(s.username),esc(s.role),dur(s.remaining_s)])));
+if(g.public_access)h+=card('G\u00e4ste (\u00f6ffentlicher Zugriff)',tbl(['IP','Restzeit'],D.guests.map(x=>['<code>'+esc(x.ip)+'</code>',dur(x.remaining_s)])));
+const js=JSON.stringify(D,null,2);
+h+=card('JSON','<pre id="json"></pre>');
+document.getElementById('out').innerHTML=h;document.getElementById('json').textContent=js;
+function dl(){const ts=new Date().toISOString().replace(/[:T]/g,'-').slice(0,19);const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([js],{type:'application/json'}));a.download='pico_switch_config_'+ts+'.json';document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},0)}
+)JS" "</script></body></html>";
+  return html;
+}
+
 static void handle_scenes_post(uint8_t sn, const HttpRequest &req) {
   // Eingaben zunaechst in temporaere Struktur lesen und pruefen (kein Lock noetig).
   const bool new_mode = json_bool_value(req.body, "mode", scene_mode);
@@ -2379,6 +2576,13 @@ static void handle_http(uint8_t sn, const HttpRequest &req) {
       else send_response(sn, "403 Forbidden", "application/json", "{\"error\":\"forbidden\"}");
     } else if (req.method == "GET") send_response(sn, "200 OK", "text/html; charset=utf-8", build_scenes_html(session));
     else if (req.method == "POST") handle_scenes_post(sn, req);
+    else send_response(sn, "405 Method Not Allowed", "text/plain", "Method not allowed");
+  } else if (req.path == "/export") {
+    Session *session = session_from_headers(req);
+    if (!session || session->role != "admin") {
+      if (req.method == "GET") send_redirect(sn, "/login?next=/export");
+      else send_response(sn, "403 Forbidden", "application/json", "{\"error\":\"forbidden\"}");
+    } else if (req.method == "GET") send_response(sn, "200 OK", "text/html; charset=utf-8", build_export_html(session), "Cache-Control: no-store\r\n");
     else send_response(sn, "405 Method Not Allowed", "text/plain", "Method not allowed");
   } else if (req.path == "/admin") {
     Session *session = session_from_headers(req);

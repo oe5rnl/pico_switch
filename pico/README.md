@@ -14,7 +14,7 @@ Der gesamte Firmware-Code liegt in einer einzelnen Quelldatei: [switch_server/sr
 pico/
 ├── upload.sh                       Build + lokale UF2-Kopie + Upload zum Pico
 ├── README.md                       diese Datei
-├── switch_w6300_relay_native.uf2   letzte erfolgreiche Build-Kopie
+├── switch_w6300_relay.uf2          letzte erfolgreiche Build-Kopie
 ├── w6300_official_test/            Referenz-Beispielprojekt von WIZnet
 └── switch_server/
     ├── CMakeLists.txt
@@ -139,7 +139,7 @@ cd pico
 Das Skript
 
 1. konfiguriert und baut Release in `switch_server/build/`,
-2. kopiert die UF2-Datei nach `switch_w6300_relay_native.uf2`,
+2. kopiert die UF2-Datei nach `pico/switch_w6300_relay.uf2`,
 3. kopiert sie zusaetzlich auf das angegebene Pico-Laufwerk (BOOTSEL-Modus) und ruft `sync` auf.
 
 ### Build-Time-Schutz `check_persist_overlap.cmake`
@@ -150,7 +150,7 @@ Nach jedem Link wird `__flash_binary_end` mit der Adresse des ersten Persistenz-
 
 1. `BOOTSEL`-Taster gedrueckt halten und USB anstecken.
 2. Pico erscheint als USB-Massenspeicher `RP2350`.
-3. `switch_w6300_relay_native.uf2` darauf kopieren (
+3. `switch_w6300_relay.uf2` darauf kopieren (
   oder `upload.sh` benutzen).
 4. Pico startet automatisch neu.
 
