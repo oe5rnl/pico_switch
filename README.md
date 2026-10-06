@@ -79,6 +79,13 @@ Enthält die eigentliche Relais- und Netzwerk-Firmware und implementiert:
 - REST-API-Server mit API-Token
 - Persistenz der Einstellungen
 - Authentifizierung und Benutzerverwaltung
+- **Export Config** (Admin, Seite **Export Config** / `/export`): vollständiger Schnappschuss
+  des Systems als übersichtliche Webseite und als herunterladbare JSON-Datei. Enthält die
+  gespeicherte Konfiguration (Allgemein, Netzwerk, Relais inkl. Ausgangs-/Eingangs-GPIO und
+  Eingangsrolle, Buttons, Szenen), den Laufzeitstatus (Zustände, Rückmeldefehler, aktive
+  Szene, Konsistenzhinweise), aktive Sessions/Gäste sowie Benutzer und API-Keys. **Achtung:**
+  Passwort-Hashes und API-Keys stehen im Klartext in der Datei — vertraulich behandeln. Die
+  Seite wird nicht zwischengespeichert (`Cache-Control: no-store`).
 - SSE: Automatisches Update der Webclients
 - Versionsanzeige: Im Web-Footer werden beide Firmware-Versionen als `Firmware pico: xx.xxxxx.g<hash>  esp32: yy.yyyyy.g<hash>` angezeigt. Format: manuelle Hauptversion `xx`/`yy`, automatischer Git-Commit-Count `xxxxx`/`yyyyy` und der kurze Commit-Hash `g<hash>`. Zusätzliche Marker: `-dirty` bei uncommittetem Stand, `+N` für N lokal noch nicht gepushte Commits (nur mit konfiguriertem Upstream). Der Hash macht den Stand eindeutig rückverfolgbar. Hauptversion: Pico `FW_MAJOR` in `pico/switch_server/CMakeLists.txt`, ESP32 `ESP_FW_MAJOR` in `esp32/version.py`. Der ESP32 meldet seine Version per `VER:<version>` über UART an den Pico; ohne verbundenes Display steht dort `esp32: -`.
 - Optionales ESP-Touchdisplay über die serielle Schnittstelle (`esp_link`-Protokoll) schaltet die realen GPIO-Relais und meldet Titel, Namen, Modus und Zustände live an das Display zurück.
