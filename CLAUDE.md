@@ -346,7 +346,7 @@ Lokales Touch-Terminal (Board ESP32-2432S028, „CYD"), LVGL 8 + TFT_eSPI + XPT2
   Timeout nach 3000 ms → zurück auf „wait for init".
 - Nach `pico_online` wird `GET DISPLAY` abgefragt und die UI aktualisiert.
 - `MODE:SCENE` / `MODE:RELAY` schaltet die UI live um; Szenennamen kommen per
-  `SCENEn:<name>`. Tastendruck sendet `SWn:ON` / `SWn:OFF` bzw. `SCENEn:GO`.
+  `SCENEn:<name>`. Tastendruck sendet `SWn:TOGGLE` bzw. `SCENEn:GO`.
   Die Modusanzeige unten rechts ist antippbar und sendet `MODE:TOGGLE`, um zwischen
   Button- und Szenen-Modus umzuschalten.
 - Nur die LVGL-Fonts montserrat 14/24/48 sind in `lv_conf.h` aktiviert.
@@ -366,7 +366,7 @@ Lokales Touch-Terminal (Board ESP32-2432S028, „CYD"), LVGL 8 + TFT_eSPI + XPT2
 | `GET NAMES` | Nur Kanalnamen |
 | `GET STATES` | Nur Zustände |
 | `GET SUBTITLE` | Nur Untertitel |
-| `SWn:ON` / `SWn:OFF` | Relais `n` (1–8) schalten |
+| `SWn:ON` / `SWn:OFF` / `SWn:TOGGLE` | Relais `n` (1–8) ein/aus/umschalten (Display sendet `TOGGLE`, serverautoritativ) |
 | `SCENEn:GO` | Szene `n` (1–8) auslösen (Szenen-Modus) |
 | `MODE:TOGGLE` | Zwischen Button- und Szenen-Modus umschalten (Tap auf Modusanzeige) |
 

@@ -564,7 +564,7 @@ static void switch_event_cb(lv_event_t * e)
 
     switch_state[idx] = !switch_state[idx];
     update_switch_visual(idx);
-    PICO_UART.printf("SW%d:%s\n", idx + 1, switch_state[idx] ? "ON" : "OFF");
+    PICO_UART.printf("SW%d:TOGGLE\n", idx + 1);
 }
 
 static void create_ui(void)

@@ -3,6 +3,7 @@
 #include <cctype>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <map>
 #include <string>
@@ -262,6 +263,11 @@ static std::vector<GuestVisitor> guest_visitors;
 static std::vector<std::string> persistent_admin_tokens;
 static std::array<bool, cfg::HTTP_SOCKET_COUNT> sse_socket = {};
 static std::array<bool, cfg::HTTP_SOCKET_COUNT> sse_show_users = {};
+// Pro Socket akkumulierter Request, bis Header (+ ggf. Body) vollstaendig sind.
+// Ein HTTP-Request kann ueber mehrere TCP-Segmente ankommen; ein einzelner recv
+// liefert dann nur einen Teil. Ohne Akkumulation schlaegt das Parsing fehl und
+// ein Toggle geht als "400 Bad Request" verloren (Relais schaltet nicht).
+static std::array<std::string, cfg::HTTP_SOCKET_COUNT> rx_accum = {};
 static std::array<uint8_t, cfg::ETHERNET_BUF_SIZE> ethernet_buf = {};
 static uint32_t last_keepalive = 0;
 static uint32_t random_state = 0x12345678;
@@ -282,6 +288,12 @@ static uint32_t last_link_check = 0;
 static recursive_mutex_t g_state_mtx;
 static volatile bool g_sse_dirty = false;      // core0 -> core1: SSE-Broadcast anfordern
 static volatile bool g_persist_dirty = false;  // core0 -> core1: Flash-Speichern anfordern
+// Flash-Schreibvorgaenge werden auf core1 zeitlich entprellt/zusammengefasst: ein
+// Flash-Erase friert core0 per Multicore-Lockout fuer zig ms ein und laesst den
+// UART-FIFO ueberlaufen (verschluckte SW:TOGGLE-Zeilen beim schnellen Schalten).
+// Deshalb wird erst nach einer Ruhephase geschrieben (bzw. spaetestens nach MAX).
+static constexpr uint32_t PERSIST_DEBOUNCE_MS = 1200;  // Ruhezeit nach letzter Aenderung
+static constexpr uint32_t PERSIST_MAX_DELAY_MS = 8000;  // garantierter Flush auch bei Dauerlast
 static volatile bool g_ip_status_dirty = false;  // core1 -> core0: IP-/Link-Status ans ESP senden
 static volatile bool g_core1_started = false;  // true, sobald core1 (Netz) laeuft
 
@@ -1454,6 +1466,30 @@ static bool parse_request(const std::string &raw, HttpRequest &req) {
   }
   req.body = raw.substr(header_end + 4);
   return true;
+}
+
+// Prueft, ob der akkumulierte Rohpuffer einen vollstaendigen HTTP-Request enthaelt:
+// Header muessen mit \r\n\r\n abgeschlossen sein und bei vorhandenem
+// Content-Length muss der Body vollstaendig vorliegen. Gibt false zurueck, solange
+// noch Daten fehlen (Request ueber mehrere TCP-Segmente verteilt).
+static bool request_complete(const std::string &raw) {
+  size_t header_end = raw.find("\r\n\r\n");
+  if (header_end == std::string::npos) return false;
+  size_t content_length = 0;
+  size_t pos = 0;
+  const std::string header_block = raw.substr(0, header_end);
+  while (pos < header_block.size()) {
+    size_t next = header_block.find("\r\n", pos);
+    std::string line = header_block.substr(pos, next == std::string::npos ? std::string::npos : next - pos);
+    size_t colon = line.find(':');
+    if (colon != std::string::npos && lower(trim(line.substr(0, colon))) == "content-length") {
+      content_length = static_cast<size_t>(std::strtoul(trim(line.substr(colon + 1)).c_str(), nullptr, 10));
+    }
+    if (next == std::string::npos) break;
+    pos = next + 2;
+  }
+  size_t body_received = raw.size() - (header_end + 4);
+  return body_received >= content_length;
 }
 
 static std::string socket_remote_ip(uint8_t sn) {
@@ -3045,6 +3081,7 @@ static void service_socket(uint8_t sn) {
     case SOCK_CLOSED:
       sse_socket[sn] = false;
       sse_show_users[sn] = false;
+      rx_accum[sn].clear();
       socket(sn, Sn_MR_TCP, cfg::HTTP_PORT, 0x00);
       listen(sn);
       break;
@@ -3058,13 +3095,25 @@ static void service_socket(uint8_t sn) {
       }
       uint16_t available = getSn_RX_RSR(sn);
       if (!available) break;
-      std::string raw;
-      raw.resize(std::min<uint16_t>(available, 4096));
-      int32_t received = recv(sn, reinterpret_cast<uint8_t *>(raw.data()), static_cast<uint16_t>(raw.size()));
+      std::string chunk;
+      chunk.resize(std::min<uint16_t>(available, 2048));
+      int32_t received = recv(sn, reinterpret_cast<uint8_t *>(chunk.data()), static_cast<uint16_t>(chunk.size()));
       if (received <= 0) break;
-      raw.resize(static_cast<size_t>(received));
+      chunk.resize(static_cast<size_t>(received));
+      std::string &raw = rx_accum[sn];
+      raw += chunk;
+      // Ueberlaufschutz: zu grosser Request -> verwerfen.
+      if (raw.size() > 32768) {
+        send_response(sn, "413 Payload Too Large", "text/plain", "Too Large");
+        raw.clear();
+        break;
+      }
+      // Noch nicht vollstaendig? Auf weitere TCP-Segmente warten.
+      if (!request_complete(raw)) break;
       HttpRequest req;
-      if (!parse_request(raw, req)) send_response(sn, "400 Bad Request", "text/plain", "Bad Request");
+      bool ok = parse_request(raw, req);
+      raw.clear();
+      if (!ok) send_response(sn, "400 Bad Request", "text/plain", "Bad Request");
       else {
         req.client_ip = socket_remote_ip(sn);
         handle_http(sn, req);
@@ -3373,6 +3422,8 @@ static bool handle_switch_command(const char *line) {
     button_command(static_cast<uint8_t>(switch_number - 1), 1);
   } else if (std::strcmp(state, "OFF") == 0) {
     button_command(static_cast<uint8_t>(switch_number - 1), 0);
+  } else if (std::strcmp(state, "TOGGLE") == 0) {
+    button_command(static_cast<uint8_t>(switch_number - 1), 2);
   } else {
     return false;
   }
@@ -3513,9 +3564,28 @@ static void net_core_main() {
     for (uint8_t sn = 0; sn < cfg::HTTP_SOCKET_COUNT; ++sn) service_socket(sn);
     keepalive_sse();
     service_network_link();
-    if (g_persist_dirty) {  // Flash-Schreiben nur hier (core0 ist Lockout-Victim)
+    // Flash-Schreiben nur hier (core0 ist Lockout-Victim). Entprellt: rasche Toggles
+    // werden zu einem einzigen Schreibvorgang zusammengefasst, damit core0 (UART)
+    // nicht bei jedem Tastendruck durch den Flash-Lockout einfriert.
+    static bool persist_pending = false;
+    static uint32_t persist_last_request = 0;
+    static uint32_t persist_pending_since = 0;
+    if (g_persist_dirty) {
       g_persist_dirty = false;
-      save_config();
+      const uint32_t now = millis32();
+      if (!persist_pending) {
+        persist_pending = true;
+        persist_pending_since = now;
+      }
+      persist_last_request = now;
+    }
+    if (persist_pending) {
+      const uint32_t now = millis32();
+      if (now - persist_last_request >= PERSIST_DEBOUNCE_MS ||
+          now - persist_pending_since >= PERSIST_MAX_DELAY_MS) {
+        persist_pending = false;
+        save_config();
+      }
     }
     if (g_sse_dirty) {  // SSE-Broadcast nur hier (W6300 nur auf core1)
       g_sse_dirty = false;

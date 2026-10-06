@@ -43,7 +43,7 @@ Wichtige Hinweise:
 Stellt das lokale Touch-Terminal bereit (bis zu 8 Tasten, ON/OFF-Statusfarben, Szenenansicht, Rückmeldefehleranzeige).
 - Es werden **nur aktivierte Buttons** (bzw. im Szenenmodus nur aktivierte Szenen) angezeigt und lückenlos gepackt; bei 1–3 sichtbaren Elementen werden sie **vergrößert** dargestellt.
 - Unten links steht die IP-/Link-Statuszeile, **unten rechts der aktive Modus** („Buttons" bzw. „Szenen").
-- Bei jeder Bedienung sendet das ESP32-Terminal einen zeilenbasierten Befehl (`SWn:ON`/`SWn:OFF` bzw. `SCENEn:GO`) über UART an den Pico.
+- Bei jeder Bedienung sendet das ESP32-Terminal einen zeilenbasierten Befehl (`SWn:TOGGLE` bzw. `SCENEn:GO`) über UART an den Pico.
 - Im Szenenmodus erscheint auf der aktiven Szenen-Taste ein roter Punkt, sobald ein Relais direkt (nicht über eine Szene) geschaltet wurde. Der Punkt erlischt bei der nächsten Szenenaktivierung.
 
 ### pico/switch_server/
@@ -100,7 +100,7 @@ Enthält die eigentliche Relais- und Netzwerk-Firmware und implementiert:
 Typischer Ablauf des Zusammenspiels im Überblick:
 
 1. Bediener tippt auf dem ESP32-Terminal einen Kanal oder eine Szene.
-2. ESP32 erzeugt den seriellen Befehl (`SWn:ON/OFF` bzw. `SCENEn:GO`).
+2. ESP32 erzeugt den seriellen Befehl (`SWn:TOGGLE` bzw. `SCENEn:GO`).
 3. Der Pico verarbeitet den Befehl direkt über UART0 (`esp_link`).
 4. Der Pico setzt den Relaiszustand, speichert ihn persistent und verteilt den neuen Zustand per API/SSE an Webclients sowie per UART zurück an das Display.
 
