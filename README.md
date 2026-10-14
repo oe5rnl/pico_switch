@@ -1,4 +1,4 @@
-# Relais-Webserver !!! ENTHÄLT FEHLER !!!
+# Relais-Webserver  
 
 Dieses Repository enthält zwei Module für eine 8-Kanal-Relaissteuerung:
 
@@ -42,6 +42,8 @@ Wichtige Hinweise:
 
 Stellt das lokale Touch-Terminal bereit (bis zu 8 Tasten, ON/OFF-Statusfarben, Szenenansicht, Rückmeldefehleranzeige).
 - Es werden **nur aktivierte Buttons** (bzw. im Szenenmodus nur aktivierte Szenen) angezeigt und lückenlos gepackt; bei 1–3 sichtbaren Elementen werden sie **vergrößert** dargestellt.
+- **Umlaute:** Titel und Button-/Szenennamen nutzen eigene LVGL-Fonts `lv_font_de_18/24` (Montserrat, ASCII + Latin-1 inkl. ÄÖÜäöüß, €, °) aus `esp32/src/fonts/`; die eingebauten LVGL-Fonts enthalten nur ASCII. Neu erzeugen mit `esp32/fonts/gen_fonts.sh`.
+- Ein Tipp schaltet die Anzeige **nicht vorab** um; der Zustand kommt vom Pico (`STATEn:`), da z. B. bei 2-/4-fach der aktive Ausgang aktiv bleibt.
 - Unten links steht die IP-/Link-Statuszeile, **unten rechts der aktive Modus** („Buttons" bzw. „Szenen").
 - Bei jeder Bedienung sendet das ESP32-Terminal einen zeilenbasierten Befehl (`SWn:TOGGLE` bzw. `SCENEn:GO`) über UART an den Pico.
 - Im Szenenmodus erscheint auf der aktiven Szenen-Taste ein roter Punkt, sobald ein Relais direkt (nicht über eine Szene) geschaltet wurde. Der Punkt erlischt bei der nächsten Szenenaktivierung.
@@ -53,6 +55,10 @@ Enthält die eigentliche Relais- und Netzwerk-Firmware und implementiert:
   Eingänge von bis zu 8 **Relais**. Relaistypen **1-fach** (1 Ausgang), **2-fach** und
   **4-fach** (mehrere Ausgänge, gegenseitig ausschließend). Je Relais optional **Impuls**
   (nur kurzer Puls statt Dauer-EIN) mit einstellbarer Impulszeit.
+- **2-/4-fach = 1-aus-N-Wahlschalter** (mit und ohne Impuls gleich): kein „Aus“; ein Tipp
+  auf den bereits aktiven Button gibt den Ausgang erneut aus (Nachsynchronisieren,
+  Rückmeldung wird neu geprüft), „Aus“-Befehle werden ignoriert. Ein laufender Impuls wird
+  durch weitere Befehle nicht verlängert.
 - **Ausgangs-GPIO frei wählbar** je Relais-Ausgang (Pool GP2–9); der zugehörige
   Eingangs-GPIO ergibt sich fest daraus (GP2↔GP10 … GP9↔GP28).
 - **Eingangsrolle je Ausgang zur Laufzeit** wählbar (kein Compilerschalter mehr):
@@ -67,14 +73,21 @@ Enthält die eigentliche Relais- und Netzwerk-Firmware und implementiert:
   nie rot werden.
 - Auf der Seite **Buttons** zeigt eine Live-Anzeige rechts am Zuordnungs-Dropdown den
   verwendeten Ausgangs-GPIO und den Rückmelde-/Taster-GPIO der gewählten Zuordnung.
-- Szenen (Aktion je Button; 1-fach = Umschalten, 2-/4-fach = Ausgang wählen)
+- Szenen (Aktion je Button; 1-fach = **Umschalten**/—, 2-/4-fach = **Ein** (Ausgang wählen)/—).
+  Eine Szene ist aktiv (grün), wenn alle „Ein“/„Umschalten“-Buttons EIN sind; „—“ wird
+  ignoriert. Gemeinsame Regel `scene_op()` für Ausführen, Aktiv- und Fehleranzeige.
 - **Impuls-Sicherheit:** ein Hardware-Timer begrenzt Impuls-Ausgänge hart auf die
   Impulszeit (auch beim Einschalten), unabhängig von der Hauptschleife.
 - **Konsistenzprüfung beim Speichern:** jede Speicherung (Buttons/Relais/Szenen) prüft die
   **gesamte** Konfiguration (auch nicht aktive Tabs). Harte Fehler (z. B. doppelt belegte
   Ausgangs-GPIO, Button auf inaktives Relais/ungültigen Eingang, Mehrfach-„Ein" auf dasselbe
   Mehrfach-Relais) verhindern das Speichern; nicht erfüllte Abhängigkeiten (z. B. aktives
-  Relais ohne Button, Szene nutzt inaktiven Button) werden als Hinweis gemeldet.
+  Relais ohne Button, Szene nutzt inaktiven Button, wirkungsloses „Aus“ bei 2-/4-fach in
+  einer Szene) werden als Hinweis gemeldet.
+- **Umlaute/UTF-8:** Titel, Überschrift und alle Namen werden als UTF-8 gespeichert und
+  überall (Web, Display, Export/Import) korrekt dargestellt. Längengrenzen gelten in Bytes
+  (Umlaut = 2 Bytes) und werden zeichengrenzen-sicher gekürzt. Alte Einträge mit
+  HTML-Kürzeln (`&Uuml;` …) werden beim Laden und beim JSON-Import automatisch umgewandelt.
 - HTTP-UI-Webserver
 - REST-API-Server mit API-Token
 - Persistenz der Einstellungen
@@ -93,6 +106,7 @@ Enthält die eigentliche Relais- und Netzwerk-Firmware und implementiert:
   nicht importiert. Fehlt eine ausgewählte Sektion oder ist sie ungültig, wird der gesamte
   Import mit einer klaren Fehlermeldung abgebrochen. Beim Import von `Benutzer/API-Keys`
   werden aktive Anmeldungen beendet, damit Rollen/Hashes sofort konsistent gelten.
+  Exportdateien älterer Firmware (Umlaute als `&Uuml;` …) werden beim Import umgewandelt.
 - SSE: Automatisches Update der Webclients
 - Versionsanzeige: Im Web-Footer werden beide Firmware-Versionen als `Firmware pico: xx.xxxxx.g<hash>  esp32: yy.yyyyy.g<hash>` angezeigt. Format: manuelle Hauptversion `xx`/`yy`, automatischer Git-Commit-Count `xxxxx`/`yyyyy` und der kurze Commit-Hash `g<hash>`. Zusätzliche Marker: `-dirty` bei uncommittetem Stand, `+N` für N lokal noch nicht gepushte Commits (nur mit konfiguriertem Upstream). Der Hash macht den Stand eindeutig rückverfolgbar. Hauptversion: Pico `FW_MAJOR` in `pico/switch_server/CMakeLists.txt`, ESP32 `ESP_FW_MAJOR` in `esp32/version.py`. Der ESP32 meldet seine Version per `VER:<version>` über UART an den Pico; ohne verbundenes Display steht dort `esp32: -`.
 - Optionales ESP-Touchdisplay über die serielle Schnittstelle (`esp_link`-Protokoll) schaltet die realen GPIO-Relais und meldet Titel, Namen, Modus und Zustände live an das Display zurück.
@@ -218,6 +232,14 @@ Flashen auf das ESP32-Board:
 
 ```bash
 pio run -e cyd -t upload
+```
+
+Umlaut-Fonts neu erzeugen (nur nötig nach Änderung von Zeichensatz oder Schriftgröße;
+benötigt `node`/`npx` und einen ersten `pio run`, der die LVGL-Bibliothek lädt):
+
+```bash
+cd esp32
+./fonts/gen_fonts.sh
 ```
 
 #### Pico-Implementierung (`pico/`)

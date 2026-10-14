@@ -15,9 +15,11 @@ verweist auf einen **Eingang eines Relais** – er steuert also nicht direkt ein
 - **1-fach:** 1 Button/Eingang → 1 Ausgang.
 - **2-fach / 4-fach:** 2 bzw. 4 Buttons/Eingänge → 2 bzw. 4 Ausgänge, die sich
   **gegenseitig ausschließen** (immer genau ein Ausgang aktiv, wie ein Stufenschalter).
+  Es gibt hier **kein „Aus“** – umgeschaltet wird, indem ein anderer Button desselben
+  Relais gewählt wird. Das gilt gleichermaßen für Impuls- (bistabile) und statische Relais.
 
-Jeder Relaisausgang statisch (fix aus oder ein) oder als **Impuls** arbeiten (kurzer Schaltpuls statt Dauer-EIN, Impulszeit
-einstellbar). Änderungen werden zwischen Webseite, Pico und Display automatisch
+Jedes Relais arbeitet statisch (Ausgang dauerhaft ein bzw. aus) oder als **Impuls** (kurzer
+Schaltpuls statt Dauer-EIN, z. B. für bistabile Relais; Impulszeit einstellbar). Änderungen werden zwischen Webseite, Pico und Display automatisch
 übertragen. Die zuletzt gespeicherten Zustände und Einstellungen bleiben nach einem
 Neustart erhalten.
 
@@ -80,6 +82,10 @@ Zustand. Nur Buttons, die auf der Seite **Buttons** aktiviert sind, werden angez
 - Ein Klick auf ein Feld schaltet den Button um. Bei einem 1-fach-Relais wird umgeschaltet
   (ein/aus); bei einem 2-/4-fach-Relais wird der zugehörige Ausgang angewählt und der
   vorher aktive Ausgang desselben Relais dadurch abgewählt.
+- Ein Klick auf den **bereits aktiven** Button eines 2-/4-fach-Relais schaltet **nicht aus**,
+  sondern gibt den Ausgang erneut aus (Impuls bzw. statisch). So lässt sich ein Relais
+  nachsynchronisieren, falls es z. B. von Hand verstellt wurde; die Rückmeldung wird dabei
+  neu geprüft. Mehrfaches schnelles Klicken verlängert einen laufenden Impuls nicht.
 - Eine rote Markierung bedeutet, dass die physische Rückmeldung nicht innerhalb der
   eingestellten Zeit zum Schaltzustand passt.
 
@@ -96,6 +102,8 @@ Eine Szene schaltet mehrere Relais mit einem einzigen Befehl. Wenn der Szenenmod
 - **1-fach-Relais werden in Szenen umgeschaltet** (Toggle wie ein Tastendruck): jede
   Ausführung der Szene wechselt den Zustand. Bei 2-/4-fach-Relais wählt die Szene den
   konfigurierten Ausgang an.
+- Grün wird eine Szene, wenn alle in ihr mit **Ein** bzw. **Umschalten** eingetragenen
+  Buttons EIN sind. Buttons mit **—** werden dabei nicht berücksichtigt.
 - Der darunterliegende Bereich **Buttons** bleibt auf der Webseite direkt bedienbar.
 
 Eine Szene ist kein dauerhaft verriegelter Betriebszustand. Relais können nach dem Aufruf einer Szene weiterhin einzeln geschaltet werden.
@@ -136,9 +144,12 @@ Buttons im 4-mal-2-Raster. Deaktivierte Buttons werden nicht angezeigt.
 - Grün: Button ist **ON** (zugeordneter Relais-Eingang aktiv).
 - Grau: Button ist **OFF**.
 - Rot: Die konfigurierte physische Rückmeldung passt nicht zum Sollzustand.
-- Antippen: schaltet den Button (1-fach: umschalten; 2-/4-fach: Ausgang anwählen).
+- Antippen: schaltet den Button (1-fach: umschalten; 2-/4-fach: Ausgang anwählen – der
+  bereits aktive Ausgang wird erneut ausgegeben, nicht ausgeschaltet, siehe 3.2).
 
 Der Buttonname und der Zustand stehen direkt auf der Taste. Ein im Namen verwendetes Zeichen `|` erzeugt auf dem Display einen Zeilenumbruch.
+Umlaute (Ä, Ö, Ü, ä, ö, ü, ß) und weitere westeuropäische Sonderzeichen (z. B. é, €, °)
+werden in Titel, Button- und Szenennamen korrekt dargestellt.
 
 ### 4.3 Szenenmodus
 
@@ -210,12 +221,17 @@ Beim **Speichern** prüft der Pico die Konfiguration auf Konsistenz:
     der jetzt inaktiv/nicht zugeordnet ist; eine Szene ohne Aktion.
 
 Die horizontale Menüleiste ist auf allen Admin-Seiten gleich (Übersicht, Speichern,
-Buttons, Relais, Szenen, Benutzer/API, Network, Export Config, Abmelden); die aktuelle Seite ist rot
+Buttons, Relais, Szenen, Benutzer/API, Network, Export Config, Import Config, Abmelden); die aktuelle Seite ist rot
 hervorgehoben.
 
 ### 5.1 Buttons (Seite „Buttons")
 
 Auf der Seite **Buttons** werden die allgemeinen Werte und die Bedien-Buttons festgelegt:
+
+> **Umlaute:** Titel, Überschrift sowie Namen von Buttons, Relais und Szenen dürfen Umlaute
+> und Sonderzeichen enthalten (Webseite und Display). Die Längengrenzen gelten in Bytes:
+> Namen max. 32, Titel/Überschrift max. 64 Bytes; ein Umlaut belegt 2 Bytes. Zu lange
+> Texte werden sauber am Zeichenende gekürzt.
 
 - **Titel:** Name in der Kopfzeile der Webseite und auf dem Display.
 - **Überschrift:** Text über den Bedienelementen der Hauptseite.
@@ -233,7 +249,7 @@ Kopfzeile bleibt sichtbar). Je Relais (1–8):
 
 - **aktiv:** Relais verwenden.
 - **Typ:** **1-fach** (1 Ausgang), **2-fach** oder **4-fach** (mehrere, gegenseitig
-  ausschließende Ausgänge).
+  ausschließende Ausgänge = Wahlschalter, immer genau einer aktiv, kein „Aus“).
 - **Name**, **Low aktiv** (kehrt die elektrische Ausgangslogik um),
   **Impuls** (kurzer Schaltpuls statt Dauer-EIN) und **Impulszeit** (100–2000 ms, Standard 300).
 - Je Ausgang:
@@ -247,7 +263,14 @@ Kopfzeile bleibt sichtbar). Je Relais (1–8):
 > **Impuls-Verhalten:** Steht ein Ausgang auf EIN, gibt er bei aktiviertem **Impuls**
 > beim Einschalten des Geräts **einen Impuls** aus (danach Leitung idle, Anzeige bleibt
 > EIN); ohne Impuls wird er statisch gehalten. Ein Sicherheits-Timer stellt sicher, dass
-> ein Impuls-Ausgang **nie länger als die Impulszeit** aktiv ist.
+> ein Impuls-Ausgang **nie länger als die Impulszeit** aktiv ist. Ein erneuter Schaltbefehl
+> während eines laufenden Impulses startet diesen nicht neu.
+
+> **2-/4-fach mit und ohne Impuls:** Das Bedienverhalten ist in beiden Fällen gleich
+> (Wahlschalter ohne „Aus“). Der Unterschied liegt nur in der Ansteuerung: mit Impuls
+> erhält der gewählte Ausgang einen kurzen Puls (bistabiles Relais), ohne Impuls bleibt er
+> dauerhaft angesteuert. Ein Befehl „Aus“ (z. B. per API `/relay/<n>/off`) wird bei
+> 2-/4-fach ignoriert.
 
 > **Wichtig:** Eine Änderung von **Low aktiv** oder der GPIO-Zuordnung wird beim Speichern
 > sofort auf die Ausgänge angewendet. Vorher sicherstellen, dass die Einstellung zur
@@ -287,8 +310,20 @@ sichtbar). Für jede Szene können Administratoren:
 
    - Für Buttons eines **1-fach-Relais**: **Umschalten** (Toggle bei jeder Ausführung)
      oder **—** (unverändert lassen).
-   - Für Buttons eines **2-/4-fach-Relais**: **Ein** (diesen Ausgang anwählen),
-     **Aus** (bedeutungslos, wird übersprungen) oder **—** (unverändert).
+   - Für Buttons eines **2-/4-fach-Relais** (mit oder ohne Impuls): **Ein** (diesen
+     Ausgang anwählen) oder **—** (unverändert). Ein „Aus“ gibt es hier nicht.
+
+   Pro 2-/4-fach-Relais darf in einer Szene höchstens **ein** Button auf **Ein** stehen.
+   Alle Buttons, die eine Szene nicht verändern soll, auf **—** lassen.
+
+   **Beispiel:** Relais 3 (2-fach) mit den Buttons „KW LZAW“ und „KW EF“. Szene „KW LZAW“:
+   Button „KW LZAW“ = **Ein**, alle anderen = **—**. Beim Aktivieren schaltet Relais 3 auf
+   diesen Ausgang, die übrigen Relais bleiben unverändert, und die Szene wird grün.
+
+> **Hinweis:** Ältere Konfigurationen können bei 2-/4-fach-Buttons noch „Aus“ gespeichert
+> haben. Das wird ignoriert, auf der Seite als **—** angezeigt und von der
+> Konsistenzprüfung als „'Aus' … ist wirkungslos“ gemeldet. Einmal **Speichern** auf der
+> Szenen-Seite bereinigt das.
 
 Die Option **Szenen-Modus aktiv** bestimmt, ob die Haupttasten Szenen oder direkt die
 Buttons bedienen. Nach Änderungen **Speichern** wählen. Deaktivierte Szenen erscheinen
@@ -384,6 +419,19 @@ Mit **JSON herunterladen** wird der Schnappschuss als Datei gespeichert; **Aktua
 
 > **Achtung:** Der Export enthält **Passwort-Hashes und API-Keys im Klartext**. Die Webseite und die heruntergeladene Datei sind vertraulich zu behandeln. Der Browser speichert die Seite nicht zwischen.
 
+### 5.8 Import Config
+
+Unter **Import Config** lässt sich eine mit **Export Config** gespeicherte JSON-Datei wieder
+einspielen. Die Datei wird lokal im Browser gelesen; anschließend werden die gewünschten
+Sektionen ausgewählt (**Allgemein**, **Netzwerk**, **Relais**, **Buttons**, **Szenen**,
+**Benutzer/API-Keys**) und mit **Importieren** übernommen. Laufzeitdaten (Zustände,
+Sessions, DHCP-Status) werden nicht importiert. Beim Import von Benutzern/API-Keys werden
+aktive Anmeldungen beendet.
+
+Exportdateien älterer Firmware-Stände enthalten Umlaute teils noch als HTML-Kürzel (z. B.
+`Relais-&Uuml;bersicht`). Diese werden beim Import automatisch in echte Umlaute
+umgewandelt (ebenso beim Neustart für bereits gespeicherte Texte).
+
 ## 6. GPIO-Belegung
 
 ### 6.1 Raspberry Pi Pico (W6300-EVB-Pico2)
@@ -422,6 +470,9 @@ Hinweise:
 | Webseite nicht erreichbar | Angezeigte Display-IP, LAN-Kabel, DHCP-Zuweisung und statische Netzwerkeinstellungen prüfen. |
 | Schalten ohne Anmeldung nicht möglich | Anmelden oder den öffentlichen Zugriff durch einen Administrator aktivieren lassen. |
 | Szene fehlt auf Display/Webseite | In der Szenenkonfiguration prüfen, ob die Szene aktiviert und gespeichert wurde. |
+| Szene wird nach dem Aktivieren nicht grün | Bei Buttons, die die Szene nicht verändern soll, **—** statt „Aus“ wählen und die Szenen-Seite speichern. Bei 1-fach-Relais wird umgeschaltet – nach dem Ausschalten ist die Szene nicht mehr grün. |
+| Hinweis „'Aus' bei Button … ist wirkungslos“ | Die Szene enthält „Aus“ für einen 2-/4-fach-Button. Szenen-Seite öffnen und speichern (wird zu **—**). |
+| Text zeigt `&Uuml;` o. Ä. statt Umlaut | Stammt aus einer alten Konfiguration. Neustart oder erneuter Import wandelt automatisch um; alternativ Text neu eingeben. |
 | Änderung erscheint nicht sofort | Verbindungsstatus prüfen. Bei Konfigurationsänderungen sicherstellen, dass **Speichern** bestätigt wurde. |
 
 ## 8. Sicherheitshinweise
