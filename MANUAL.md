@@ -412,7 +412,7 @@ Angezeigt werden:
 - **Relais:** je Relais Typ, Name, Polarität, Impulszeit und je Ausgang die Ausgangs-GPIO, die Eingangsrolle (keine/Rückmeldung/Taster) mit Eingangs-GPIO sowie der Live-Status (ein/aus, Impuls, Taster gedrückt, Rückmeldefehler).
 - **Buttons:** je Button Aktiv-Status, Name, Zuordnung zu Relais/Ausgang, die verwendeten GPIOs, der Zustand und ein eventueller Rückmeldefehler.
 - **Szenen:** je Szene Name, Aktionen und Status.
-- **Benutzer und API-Keys**, **Laufzeitstatus** (aktive Szene, Konsistenzhinweise, Flash-Schreibsperre), **aktive Sessions** und – bei öffentlichem Zugriff – aktive **Gäste**.
+- **Benutzer und API-Keys**, **Laufzeitstatus** (aktive Szene, Konsistenzhinweise, Flash-Schreibsperre, Anzahl Flash-Schreibvorgänge bzw. übersprungener Speicherungen seit dem Start), **aktive Sessions** und – bei öffentlichem Zugriff – aktive **Gäste**.
 - Am Ende die komplette **JSON**-Darstellung.
 
 Mit **JSON herunterladen** wird der Schnappschuss als Datei gespeichert; **Aktualisieren** lädt die Seite neu.

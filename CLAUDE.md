@@ -90,6 +90,8 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
   JSON-Import (`/config_load`, z. B. alte Exportdateien) in UTF-8.
 - `save_config()` überspringt Erase/Program, wenn alle Slots bereits den identischen Sektor
   enthalten (`persist_slots_up_to_date`) — schont den Flash bei Tipps ohne Zustandsänderung.
+  Zähler `g_flash_writes`/`g_flash_skips` (nur RAM, ab Boot) erscheinen auf `/export` unter
+  Laufzeitstatus bzw. im JSON als `runtime.flash_writes`/`runtime.flash_skips`.
 - CMake-Check `check_persist_overlap.cmake` stellt sicher, dass der Flash-Slot
   nicht mit dem Binär-Image kollidiert.
 

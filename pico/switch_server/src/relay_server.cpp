@@ -272,6 +272,10 @@ static std::array<uint8_t, cfg::ETHERNET_BUF_SIZE> ethernet_buf = {};
 static uint32_t last_keepalive = 0;
 static uint32_t random_state = 0x12345678;
 static bool persist_write_locked = false;
+// Diagnose (nur RAM, ab Boot): tatsaechliche Flash-Schreibvorgaenge bzw. uebersprungene,
+// weil die Konfiguration unveraendert war. Angezeigt auf /export (Laufzeitstatus).
+static volatile uint32_t g_flash_writes = 0;
+static volatile uint32_t g_flash_skips = 0;
 static bool dhcp_assigned = false;
 static bool dhcp_conflict = false;
 static bool g_use_dhcp = false;  // Bootstrap-Modus: true = DHCP angefordert
@@ -717,7 +721,10 @@ static void save_config() {
   }  // g_state_mtx hier freigeben: Flash-Schreiben laeuft OHNE Lock
 
   std::array<uintptr_t, 4> offsets = persist_flash_offsets();
-  if (persist_slots_up_to_date(sector.data(), offsets)) return;  // unveraendert: nichts schreiben
+  if (persist_slots_up_to_date(sector.data(), offsets)) {  // unveraendert: nichts schreiben
+    g_flash_skips = g_flash_skips + 1;
+    return;
+  }
   FlashWriteCtx ctx{sector.data(), offsets.data(), offsets.size(), false};
   // Flash-Erase/Program macht den Flash fuer BEIDE Kerne unzugaenglich. Sobald
   // core1 laeuft, laufen wir hier auf core1 und sperren core0 per
@@ -731,7 +738,8 @@ static void save_config() {
     flash_write_cb(&ctx);
     restore_interrupts(interrupts);
   }
-  if (!ctx.wrote) printf("Kein sicherer Persistenz-Slot gefunden, Konfiguration nicht gespeichert.\n");
+  if (ctx.wrote) g_flash_writes = g_flash_writes + 1;
+  else printf("Kein sicherer Persistenz-Slot gefunden, Konfiguration nicht gespeichert.\n");
 }
 
 static ConfigLoadResult load_config() {
@@ -2539,6 +2547,7 @@ static std::string export_config_json() {
     o += ",\"runtime\":{\"active_scene\":" + (active_scene >= 0 ? std::to_string(active_scene + 1) : std::string("null")) +
          ",\"scene_dirty\":" + exp_bool(scene_dirty) +
          ",\"persist_write_locked\":" + exp_bool(persist_write_locked) +
+         ",\"flash_writes\":" + std::to_string(g_flash_writes) + ",\"flash_skips\":" + std::to_string(g_flash_skips) +
          ",\"consistency_warnings\":" + exp_str(check_all_consistency()) + "}";
   }
 
@@ -2604,7 +2613,7 @@ h+=card('Szenen',tbl(['#','Aktiv','Name','Aktionen','Status'],D.scenes.map(s=>{c
 h+=card('Benutzer',tbl(['Benutzer','Rolle','Passwort-Hash (SHA-256)'],D.users.map(u=>[esc(u.name),esc(u.role),'<code>'+esc(u.password_sha256)+'</code>'])));
 h+=card('API-Keys',tbl(['Key','Kommentar'],D.api_keys.map(k=>['<code>'+esc(k.key)+'</code>',esc(k.comment)])));
 const warns=(rt.consistency_warnings||'').split(/\.\s+/).map(x=>x.trim()).filter(x=>x);
-h+=card('Laufzeitstatus',kv([['Aktive Szene',rt.active_scene!=null?rt.active_scene+(D.scenes[rt.active_scene-1].name?' ('+esc(D.scenes[rt.active_scene-1].name)+')':''):'<span class="muted">keine</span>'],['Szene manuell ver\u00e4ndert',yn(rt.scene_dirty)],['Flash-Schreibsperre',rt.persist_write_locked?'<span class="err">aktiv (Werksreset n\u00f6tig)</span>':'<span class="ok">nein</span>'],['Konsistenzpr\u00fcfung',warns.length?'<span class="warn">'+warns.map(esc).join('<br>')+'</span>':'<span class="ok">OK</span>']]));
+h+=card('Laufzeitstatus',kv([['Aktive Szene',rt.active_scene!=null?rt.active_scene+(D.scenes[rt.active_scene-1].name?' ('+esc(D.scenes[rt.active_scene-1].name)+')':''):'<span class="muted">keine</span>'],['Szene manuell ver\u00e4ndert',yn(rt.scene_dirty)],['Flash-Schreibsperre',rt.persist_write_locked?'<span class="err">aktiv (Werksreset n\u00f6tig)</span>':'<span class="ok">nein</span>'],['Flash geschrieben / \u00fcbersprungen (seit Start)',rt.flash_writes+' / '+rt.flash_skips],['Konsistenzpr\u00fcfung',warns.length?'<span class="warn">'+warns.map(esc).join('<br>')+'</span>':'<span class="ok">OK</span>']]));
 h+=card('Aktive Sessions',tbl(['Benutzer','Rolle','Restzeit'],D.sessions.map(s=>[esc(s.username),esc(s.role),dur(s.remaining_s)])));
 if(g.public_access)h+=card('G\u00e4ste (\u00f6ffentlicher Zugriff)',tbl(['IP','Restzeit'],D.guests.map(x=>['<code>'+esc(x.ip)+'</code>',dur(x.remaining_s)])));
 const js=JSON.stringify(D,null,2);
