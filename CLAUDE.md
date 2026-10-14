@@ -86,7 +86,8 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
   sondern aus der Ausgangs-GPIO abgeleitet (`input_for_output()`).
 - Texte (Titel, Namen, Szenen) werden als **UTF-8** gespeichert; Längengrenzen gelten in
   Bytes (Umlaut = 2 Bytes) und werden per `utf8_truncate()` zeichengrenzen-sicher gekürzt.
-  Alt-Datensätze mit HTML-Entities (`&Uuml;` …) wandelt `load_config()` beim Laden in UTF-8.
+  Alt-Datensätze mit HTML-Entities (`&Uuml;` …) wandeln `load_config()` beim Laden und der
+  JSON-Import (`/config_load`, z. B. alte Exportdateien) in UTF-8.
 - CMake-Check `check_persist_overlap.cmake` stellt sicher, dass der Flash-Slot
   nicht mit dem Binär-Image kollidiert.
 
@@ -131,10 +132,18 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
 - Bei aktivem Szenen-Modus steuern die 8 Buttons (Web + ESP-Display) **nicht**
   direkt die Relais, sondern aktivieren je eine Szene.
 - Eine **Szene** hat: `enabled`-Flag, Name und je **Button** eine Aktion:
-  `0` = aus, `1` = ein, `2` = unverändert. Bei 2-/4-fach-Buttons wirkt nur `1` (wählt
-  den Ausgang an); `0` ist bedeutungslos (gegenseitiger Ausschluss) und wird übersprungen.
-  **1-fach-Relais werden getoggelt** (Aktion ≠ „unverändert" = ein Tastendruck, wie im
-  Button-Betrieb); die `/scenes`-UI zeigt für sie „—"/„Umschalten" statt Aus/Ein.
+  `0` = aus, `1` = ein, `2` = unverändert. Die Wirkung hängt vom Ziel-Relais ab und ist
+  in **einer** Regel `scene_op()` festgelegt (genutzt von `activate_scene`,
+  `scene_state_matches`, `update_scene_feedback_errors`, Konsistenzprüfung):
+
+  | Ziel | `/scenes`-Optionen | Aktivieren | Szene aktiv (grün), wenn |
+  |---|---|---|---|
+  | 1-fach | „—"/„Umschalten" | Toggle (ein Tastendruck) | Button EIN |
+  | 2-/4-fach (statisch wie Impuls) | „—"/„Ein" | `1` wählt Ausgang an (auch erneut); `0` wird ignoriert | `1`-Buttons EIN |
+
+  Ein gespeichertes `0` bei 2-/4-fach (Altdaten/Import) zeigt die UI als „—" und die
+  Konsistenzprüfung warnt („'Aus' … wirkungslos"). Ein eigener Relaistyp mit „Aus“
+  (statischer Mehrfachausgang) ist für später vorgesehen.
 - Aktivierung ist **momentan**: `activate_scene()` wendet die Aktionen an, speichert bei
   Änderung und meldet den neuen Zustand. Die Szene gilt danach nur dann als **aktiv**
   (`active_scene`, grüne Button-Anzeige), wenn der aktuelle Zustand ihrer Vorgabe
@@ -282,11 +291,12 @@ Zentrale Abstraktion (kein Compileschalter mehr):
   `2-fach` (2 Ausgänge) oder `4-fach` (4 Ausgänge). `2-fach`/`4-fach` sind gegenseitig
   ausschließend — „immer genau ein Ausgang aktiv". Je Relais optional **Impuls** (nur der gewählte Ausgang wird
   gepulst/gesetzt, die Anzeige `active_output` bleibt gelatcht) und Ausgangspolarität.
-  **2-/4-fach mit Impuls = bistabile Relais:** kein „Aus“ — Aus/Toggle auf den aktiven
-  Ausgang wird ignoriert (kein Impuls, Latch + Rückmeldeerwartung bleiben EIN); umgeschaltet
-  wird nur über einen anderen Button. Statische 2-/4-fach-Relais lassen sich über den
-  aktiven Button ausschalten (dann ist kein Ausgang aktiv). Das ESP-Display schaltet die
-  Anzeige nicht vorab um, sondern übernimmt den Zustand aus `STATEn:`.
+  **2-/4-fach = 1-aus-N-Wahlschalter (statisch wie Impuls), es gibt kein „Aus“:** Ein/Toggle
+  wählt den Ausgang an — auch den bereits aktiven, dann wird der Impuls bzw. der statische
+  Ausgang erneut ausgegeben (Nachsynchronisieren, Rückmeldeprüfung startet neu); „Aus“
+  (`SWn:OFF`, `/relay/<i>/off`) wird ignoriert. Ein laufender Impuls wird nicht neu gestartet
+  (`drive_output_locked`), damit Mehrfach-Tippen die Spule nicht dauerhaft bestromt. Das
+  ESP-Display schaltet die Anzeige nicht vorab um, sondern übernimmt den Zustand aus `STATEn:`.
 - **Ausgangs-GPIO** pro Ausgang frei aus `OUTPUT_PINS` wählbar; der **Eingang-GPIO**
   ergibt sich fest daraus (`input_for_output()`: `OUTPUT_PINS[i]`↔`INPUT_PINS[i]`).
   `resolve_gpios()` validiert (kein Ausgangs-Pin doppelt) und leitet `in_gpio` ab.

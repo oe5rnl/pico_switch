@@ -948,10 +948,22 @@ static bool feedback_matches(uint8_t r, uint8_t k) {
   return fb_on == rl.fb_expected[k];
 }
 
+// Wirkung einer Szenen-Aktion (0=aus, 1=ein, 2=unveraendert) je Ziel-Relais. Gemeinsame
+// Regel fuer Aktivieren, Aktiv-Anzeige, Szenen-Rueckmeldefehler und Konsistenzpruefung:
+//   1-fach:     != 2 -> Toggle (wie ein Tastendruck)
+//   2-/4-fach:  1 -> Ein (Ausgang anwaehlen); 0 ist bedeutungslos -> ignoriert. 2-/4-fach ist
+//               ein 1-aus-N-Wahlschalter (statisch wie Impuls): immer genau ein Ausgang aktiv.
+enum class SceneOp : uint8_t { None, Toggle, On };
+static SceneOp scene_op(const Relais &rl, uint8_t action) {
+  if (action == 2) return SceneOp::None;
+  if (rl.type == RelayType::Simple) return SceneOp::Toggle;
+  return action == 1 ? SceneOp::On : SceneOp::None;
+}
+
 // Eine Szene gilt als fehlerhaft, sobald ein von ihr angesteuerter Rueckmelde-
 // Ausgang einen Fehler meldet -- unabhaengig davon, wer zuletzt geschaltet hat und
-// ob die Szene gerade aktiv ist. Zugehoerig ist ein Ausgang bei 1-fach action != 2
-// (unveraendert), bei 2-/4-fach action == 1 (nur "ein" waehlt einen Ausgang).
+// ob die Szene gerade aktiv ist. Zugehoerig ist ein Ausgang bei Toggle (1-fach) oder
+// Ein (2-/4-fach); abgeschaltete Geschwister werden nicht ueberwacht.
 static void update_scene_feedback_errors() {
   scene_feedback_error.fill(false);
   for (uint8_t s = 0; s < cfg::SCENE_COUNT; ++s) {
@@ -963,8 +975,8 @@ static void update_scene_feedback_errors() {
       if (!rl.valid || !rl.enabled) continue;
       const uint8_t k = bt.input_idx;
       if (k >= outputs_count(rl)) continue;
-      const uint8_t a = scenes[s].action[b];
-      const bool referenced = (rl.type == RelayType::Simple) ? (a != 2) : (a == 1);
+      const SceneOp op = scene_op(rl, scenes[s].action[b]);
+      const bool referenced = op == SceneOp::Toggle || op == SceneOp::On;
       if (referenced && rl.in_role[k] == static_cast<uint8_t>(InRole::Feedback) && rl.fb_error[k]) { scene_feedback_error[s] = true; break; }
     }
   }
@@ -989,6 +1001,9 @@ static void start_feedback_check(uint8_t r, uint8_t k, bool expected_on) {
 static void drive_output_locked(uint8_t r, uint8_t k, bool on) {
   Relais &rl = relais[r];
   if (on && rl.impulse) {
+    // Laeuft auf diesem Ausgang bereits ein Impuls, nicht neu starten: sonst wuerde schnelles
+    // Mehrfach-Tippen die Deadline immer weiter schieben und die Spule dauerhaft bestromen.
+    if (rl.imp_active[k]) return;
     apply_output(r, k, true);
     rl.imp_active[k] = true;
     rl.imp_deadline[k] = millis32() + rl.impulse_ms;
@@ -1041,18 +1056,11 @@ static void apply_button_locked(uint8_t b, int action) {
   if (rl.type == RelayType::Simple) {
     const bool on = action == 2 ? (rl.active_output != 1) : (action == 1);
     relais_set_simple(bt.relais_idx, on);
-  } else {
-    const bool currently = (rl.active_output == static_cast<uint8_t>(k + 1));
-    const bool on = action == 2 ? !currently : (action == 1);
-    if (on) {
-      relais_select_quad(bt.relais_idx, k);
-    } else if (currently && !rl.impulse) {
-      // Nur statische 2-/4-fach-Relais kennen "Aus". Bistabile Impuls-Relais stehen immer
-      // in einer Stellung: Aus auf den aktiven Ausgang wird ignoriert (kein Impuls, Latch
-      // und Rueckmeldeerwartung bleiben EIN); umgeschaltet wird nur ueber einen anderen Button.
-      rl.active_output = 0;
-      drive_output_locked(bt.relais_idx, k, false);
-    }
+  } else if (action != 0) {
+    // 2-/4-fach = 1-aus-N-Wahlschalter (statisch wie Impuls), es gibt kein "Aus".
+    // Ein/Toggle waehlt den Ausgang an -- auch den bereits aktiven: Impuls bzw. statischer
+    // Ausgang wird erneut ausgegeben (Nachsynchronisieren). "Aus" wird ignoriert.
+    relais_select_quad(bt.relais_idx, k);
   }
 }
 
@@ -1121,11 +1129,14 @@ static bool service_relay_feedback() {
 }
 
 // Prueft, ob die aktuellen Button-Zustaende der Szenenvorgabe entsprechen
-// ("unveraendert"/Aktion 2 wird ignoriert).
+// ("unveraendert"/Aktion 2 wird ignoriert, ebenso "aus" bei 2-/4-fach-Relais).
 static bool scene_state_matches(uint8_t idx) {
   for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
     const uint8_t a = scenes[idx].action[b];
     if (a == 2) continue;
+    const Button &bt = buttons[b];
+    if (bt.enabled && bt.relais_idx >= 0 && bt.relais_idx < cfg::MAX_RELAIS &&
+        scene_op(relais[bt.relais_idx], a) == SceneOp::None) continue;
     if (button_is_on(b) != (a == 1)) return false;
   }
   return true;
@@ -1153,9 +1164,9 @@ static bool service_impulses() {
   return changed;
 }
 
-// Wendet eine (aktivierte) Szene momentan an. 1-fach-Relais werden getoggelt
-// (jede in der Szene enthaltene Aktion != "unveraendert" = ein Tastendruck),
-// 2-/4-fach waehlen bei "ein" ihren Ausgang; "unveraendert" wird uebersprungen.
+// Wendet eine (aktivierte) Szene momentan an (Regel siehe scene_op): 1-fach wird
+// getoggelt, 2-/4-fach waehlt bei "ein" seinen Ausgang; "unveraendert" und "aus" bei
+// 2-/4-fach entfallen.
 static void activate_scene(uint8_t idx) {
   bool persist = false;
   {
@@ -1172,13 +1183,17 @@ static void activate_scene(uint8_t idx) {
       if (!rl.valid || !rl.enabled) continue;
       const uint8_t k = bt.input_idx;
       if (k >= outputs_count(rl)) continue;
-      const bool on = (a == 1);
-      if (rl.type == RelayType::Simple) {  // Toggle wie ein Tastendruck (Aus/Ein egal)
-        relais_set_simple(bt.relais_idx, rl.active_output != 1);
-        changed = true;
-      } else if (on) {  // 2-/4-fach: nur "ein" waehlt einen Ausgang, "aus" ist bedeutungslos
-        relais_select_quad(bt.relais_idx, k);
-        changed = true;
+      switch (scene_op(rl, a)) {
+        case SceneOp::Toggle:  // 1-fach: wie ein Tastendruck
+          relais_set_simple(bt.relais_idx, rl.active_output != 1);
+          changed = true;
+          break;
+        case SceneOp::On:
+          relais_select_quad(bt.relais_idx, k);
+          changed = true;
+          break;
+        case SceneOp::None:
+          break;
       }
     }
     // Szene nur als "aktiv" markieren, wenn der Zustand jetzt ihrer Vorgabe entspricht.
@@ -1732,13 +1747,20 @@ static std::string check_all_consistency_impl(const std::array<Relais, cfg::MAX_
     bool any = false;
     for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
       if (scene_cfg[s].action[b] == 2) continue;
-      any = true;
       const Button &bt = btns[b];
       if (!bt.enabled || bt.relais_idx < 0 || bt.relais_idx >= cfg::MAX_RELAIS || !rels[bt.relais_idx].enabled || !rels[bt.relais_idx].valid) {
         m += "Szene " + std::to_string(s + 1) + " nutzt Button " + std::to_string(b + 1) + ", der inaktiv/nicht zugeordnet ist. ";
+        any = true;
         continue;
       }
-      if (rels[bt.relais_idx].type != RelayType::Simple && scene_cfg[s].action[b] == 1) {
+      const SceneOp op = scene_op(rels[bt.relais_idx], scene_cfg[s].action[b]);
+      if (op == SceneOp::None) {  // "aus" bei 2-/4-fach-Relais
+        m += "Szene " + std::to_string(s + 1) + ": 'Aus' bei Button " + std::to_string(b + 1) + " ist wirkungslos (Relais " +
+             std::to_string(bt.relais_idx + 1) + " ist 2-/4-fach). ";
+        continue;
+      }
+      any = true;
+      if (op == SceneOp::On) {
         if (++on_per_relais[bt.relais_idx] == 2)
           m += "Szene " + std::to_string(s + 1) + ": mehrere Eingaenge von Relais " + std::to_string(bt.relais_idx + 1) + " auf 'Ein' (nur einer moeglich). ";
       }
@@ -2348,13 +2370,16 @@ static std::string build_scenes_html(const Session *session) {
       if (!buttons[r].enabled) continue;  // nur aktive Buttons sind in Szenen steuerbar
       const uint8_t a = scenes[s].action[r];
       const std::string label = buttons[r].name.empty() ? ("Button " + std::to_string(r + 1)) : buttons[r].name;
-      const bool is_simple = buttons[r].relais_idx >= 0 && buttons[r].relais_idx < cfg::MAX_RELAIS &&
-                             relais[buttons[r].relais_idx].type == RelayType::Simple;
+      const bool has_rel = buttons[r].relais_idx >= 0 && buttons[r].relais_idx < cfg::MAX_RELAIS;
+      const bool is_simple = has_rel && relais[buttons[r].relais_idx].type == RelayType::Simple;
+      const bool is_multi = has_rel && !is_simple;
       cells += "<div class=\"cell\"><span>" + html_escape(label) + "</span><select data-s=\"" + std::to_string(s) + "\" data-r=\"" + std::to_string(r) + "\">"
-               "<option value=\"x\"" + std::string(a == 2 ? " selected" : "") + ">\xe2\x80\x94</option>";
-      if (is_simple) {  // 1-fach: Toggle statt absolutem Aus/Ein
+               "<option value=\"x\"" + std::string(a == 2 || (is_multi && a == 0) ? " selected" : "") + ">\xe2\x80\x94</option>";
+      if (is_multi) {  // 2-/4-fach: kein "Aus", nur Ausgang anwaehlen
+        cells += "<option value=\"1\"" + std::string(a == 1 ? " selected" : "") + ">Ein</option>";
+      } else if (is_simple) {  // 1-fach: Toggle statt absolutem Aus/Ein
         cells += "<option value=\"1\"" + std::string(a != 2 ? " selected" : "") + ">Umschalten</option>";
-      } else {
+      } else {  // Button ohne gueltiges Relais
         cells += "<option value=\"0\"" + std::string(a == 0 ? " selected" : "") + ">Aus</option>"
                  "<option value=\"1\"" + std::string(a == 1 ? " selected" : "") + ">Ein</option>";
       }
@@ -2618,8 +2643,9 @@ static void handle_config_load_post(uint8_t sn, const HttpRequest &req) {
       send_response(sn, "400 Bad Request", "application/json", "{\"ok\":false,\"error\":\"sektion allgemein unvollstaendig\"}");
       return;
     }
-    new_title = utf8_truncate(json_string_value(req.body, "g_title"), 64);
-    new_subtitle = utf8_truncate(json_string_value(req.body, "g_subtitle"), 64);
+    // Alt-Exporte (vor UTF-8) enthalten Umlaute als HTML-Entity -> beim Import wandeln.
+    new_title = utf8_truncate(decode_umlaut_entities(json_string_value(req.body, "g_title")), 64);
+    new_subtitle = utf8_truncate(decode_umlaut_entities(json_string_value(req.body, "g_subtitle")), 64);
     new_public_access = json_bool_value(req.body, "g_public", public_access);
     new_scene_mode = json_bool_value(req.body, "g_scene_mode", scene_mode);
     new_feedback_timeout_ms = std::clamp<uint32_t>(json_uint_value(req.body, "g_feedback_timeout", feedback_timeout_ms),
@@ -2658,7 +2684,7 @@ static void handle_config_load_post(uint8_t sn, const HttpRequest &req) {
       Relais &rl = new_relais[r];
       rl.enabled = en[r];
       rl.type = (type[r] == 1) ? RelayType::Quad : (type[r] == 2) ? RelayType::Dual : RelayType::Simple;
-      rl.name = names[r];
+      rl.name = decode_umlaut_entities(names[r]);
       rl.active_low = low[r];
       rl.impulse = imp[r];
       rl.impulse_ms = std::clamp<uint16_t>(static_cast<uint16_t>(impms[r]), cfg::MIN_IMPULSE_MS, cfg::MAX_IMPULSE_MS);
@@ -2727,7 +2753,7 @@ static void handle_config_load_post(uint8_t sn, const HttpRequest &req) {
     for (uint8_t b = 0; b < cfg::MAX_BUTTONS; ++b) {
       Button &bt = new_buttons[b];
       bt.enabled = en[b];
-      bt.name = names[b];
+      bt.name = decode_umlaut_entities(names[b]);
       bt.relais_idx = (rels[b] >= 0 && rels[b] < cfg::MAX_RELAIS) ? static_cast<int8_t>(rels[b]) : -1;
       bt.input_idx = (ins[b] >= 0 && ins[b] < cfg::MAX_OUTPUTS) ? static_cast<uint8_t>(ins[b]) : 0;
     }
@@ -2744,7 +2770,7 @@ static void handle_config_load_post(uint8_t sn, const HttpRequest &req) {
         return;
       }
       sc_en[s] = json_bool_value(req.body, p + "en", false);
-      sc_name[s] = utf8_truncate(json_string_value(req.body, p + "name"), 32);
+      sc_name[s] = utf8_truncate(decode_umlaut_entities(json_string_value(req.body, p + "name")), 32);
       const std::string act = json_string_value(req.body, p + "act");
       if (act.size() != cfg::MAX_BUTTONS) {
         send_response(sn, "400 Bad Request", "application/json", "{\"ok\":false,\"error\":\"sektion szenen ungueltig\"}");
