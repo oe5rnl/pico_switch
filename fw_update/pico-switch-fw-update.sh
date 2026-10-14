@@ -49,6 +49,7 @@ EXPLICIT_TARGET=0
 PICO_XIP_BASE=$(( 0x10000000 ))
 PICO_FLASH_SECTOR=$(( 0x1000 ))
 
+
 # Feste ESP32-Imagenamen im aktuellen Verzeichnis (normal / um 180 Grad gedreht).
 ESP32_STD_IMAGE="firmware.bin"
 ESP32_ROT_IMAGE="firmware-rot180.bin"
