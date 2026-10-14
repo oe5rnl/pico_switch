@@ -12,6 +12,8 @@ set -euo pipefail
 # Die FW-Images muessen im aktuellen Verzeichnis liegen oder werden per
 # -i / --image (bzw. --pico-image/--esp32-image) angegeben:
 #   *.uf2 -> Pico-Firmware       *.bin -> ESP32-Firmware
+# ESP32: bevorzugt firmware.bin, mit -r/--rotate firmware-rot180.bin
+# (Display + Touch um 180 Grad gedreht).
 #
 # Vor dem Flashen prueft das Skript, ob alle noetigen Programme installiert
 # sind. Fehlt etwas, werden die fehlenden Komponenten aufgelistet und es wird
@@ -37,6 +39,7 @@ PICOTOOL_PREBUILT_URL="${PICOTOOL_PREBUILT_URL:-}"
 WANT_PICO=0
 WANT_ESP32=0
 WANT_WIPE=0
+ROTATE=0
 PICO_IMAGE=""
 ESP32_IMAGE=""
 ASSUME_YES=0
@@ -45,6 +48,10 @@ EXPLICIT_TARGET=0
 # XIP-Basis und Sektorgroesse des RP2350-Flash (fuer den Persistenz-Wipe).
 PICO_XIP_BASE=$(( 0x10000000 ))
 PICO_FLASH_SECTOR=$(( 0x1000 ))
+
+# Feste ESP32-Imagenamen im aktuellen Verzeichnis (normal / um 180 Grad gedreht).
+ESP32_STD_IMAGE="firmware.bin"
+ESP32_ROT_IMAGE="firmware-rot180.bin"
 
 # ESP-Kommando (wird bei der Tool-Pruefung gesetzt)
 ESPTOOL_CMD=()
@@ -59,13 +66,17 @@ Flasht vorgefertigte Firmware ohne BOOTSEL-Taste:
 Zielauswahl:
   -p, --pico              Pico-Firmware flashen
   -e, --esp32             ESP32-Firmware flashen
+  -r, --rotate            ESP32 mit um 180 Grad gedrehter Anzeige flashen
+                          (${ESP32_ROT_IMAGE} statt ${ESP32_STD_IMAGE}); aktiviert das
+                          ESP32-Ziel
   -w, --wipe-persist      Werksreset: gespeicherte Pico-Einstellungen (Persistenz)
                           per picotool loeschen. Ohne -p/-e allein nutzbar
                           (kein Image noetig); mit -p wird zuerst geloescht,
                           dann geflasht.
   (ohne -p/-e/-w: Auto - es wird geflasht, wozu ein Image gefunden/angegeben wird)
 
-Images (sonst im aktuellen Verzeichnis gesucht):
+Images (sonst im aktuellen Verzeichnis gesucht; ESP32: ${ESP32_STD_IMAGE},
+bzw. mit -r ${ESP32_ROT_IMAGE}, sonst das einzige *.bin):
   -i, --image PATH        FW-Image; Typ nach Endung (.uf2=Pico, .bin=ESP32),
                           aktiviert das passende Ziel. Mehrfach nutzbar.
       --pico-image PATH   explizites Pico-Image (.uf2)
@@ -112,6 +123,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     -p|--pico)  WANT_PICO=1; EXPLICIT_TARGET=1; shift ;;
     -e|--esp32) WANT_ESP32=1; EXPLICIT_TARGET=1; shift ;;
+    -r|--rotate) ROTATE=1; WANT_ESP32=1; shift ;;
     -w|--wipe-persist) WANT_WIPE=1; EXPLICIT_TARGET=1; shift ;;
     -i|--image) [[ $# -ge 2 ]] || die "$1 benoetigt ein Argument"; add_image_by_ext "$2"; shift 2 ;;
     --pico-image)  [[ $# -ge 2 ]] || die "$1 benoetigt ein Argument"; PICO_IMAGE="$2"; WANT_PICO=1; EXPLICIT_TARGET=1; shift 2 ;;
@@ -125,6 +137,10 @@ while [[ $# -gt 0 ]]; do
     *)  add_image_by_ext "$1"; shift ;;
   esac
 done
+
+if [[ "${ROTATE}" -eq 1 && -n "${ESP32_IMAGE}" ]]; then
+  die "-r/--rotate und ein explizites ESP32-Image schliessen sich aus"
+fi
 
 # ---- Image-Aufloesung im aktuellen Verzeichnis ----------------------------
 # Sucht genau ein Image mit passender Endung; bei 0 oder >1 klare Meldung.
@@ -149,7 +165,8 @@ find_single_image() {
 # Auto-Modus: kein Ziel explizit gewaehlt -> anhand vorhandener Images ableiten
 if [[ "${EXPLICIT_TARGET}" -eq 0 ]]; then
   if img="$(find_single_image uf2)"; then PICO_IMAGE="${img}"; WANT_PICO=1; fi
-  if img="$(find_single_image bin)"; then ESP32_IMAGE="${img}"; WANT_ESP32=1; fi
+  if [[ -f "${ESP32_STD_IMAGE}" ]]; then WANT_ESP32=1
+  elif img="$(find_single_image bin)"; then ESP32_IMAGE="${img}"; WANT_ESP32=1; fi
   if [[ "${WANT_PICO}" -eq 0 && "${WANT_ESP32}" -eq 0 ]]; then
     echo "Kein Firmware-Image im aktuellen Verzeichnis gefunden (*.uf2 / *.bin)." >&2
     echo "Image per -i PATH angeben oder in dieses Verzeichnis legen." >&2
@@ -178,7 +195,11 @@ if [[ "${WANT_PICO}" -eq 1 ]]; then
   [[ -f "${PICO_IMAGE}" ]] || die "Pico-Image nicht gefunden: ${PICO_IMAGE}"
 fi
 if [[ "${WANT_ESP32}" -eq 1 ]]; then
-  ESP32_IMAGE="$(resolve_image bin "${ESP32_IMAGE}" "ESP32")"
+  if [[ -z "${ESP32_IMAGE}" ]]; then
+    if [[ "${ROTATE}" -eq 1 ]]; then ESP32_IMAGE="${ESP32_ROT_IMAGE}"
+    elif [[ -f "${ESP32_STD_IMAGE}" ]]; then ESP32_IMAGE="${ESP32_STD_IMAGE}"
+    else ESP32_IMAGE="$(resolve_image bin "" "ESP32")"; fi
+  fi
   [[ -f "${ESP32_IMAGE}" ]] || die "ESP32-Image nicht gefunden: ${ESP32_IMAGE}"
 fi
 
@@ -358,7 +379,7 @@ check_dependencies() {
 
 echo "== pico-switch Firmware-Update =="
 [[ "${WANT_PICO}"  -eq 1 ]] && echo "  Pico  : ${PICO_IMAGE}"
-[[ "${WANT_ESP32}" -eq 1 ]] && echo "  ESP32 : ${ESP32_IMAGE} (offset ${ESP32_OFFSET})"
+[[ "${WANT_ESP32}" -eq 1 ]] && echo "  ESP32 : ${ESP32_IMAGE} (offset ${ESP32_OFFSET})$([[ "${ROTATE}" -eq 1 ]] && echo ', 180 Grad gedreht')"
 [[ "${WANT_WIPE}"  -eq 1 ]] && echo "  Pico  : Werksreset (Persistenz loeschen)"
 echo
 

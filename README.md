@@ -177,15 +177,21 @@ serielle USB-Brücke.
 cd fw_update                          # enthaelt das Skript + die FW-Images
 ./pico-switch-fw-update.sh            # Auto: flasht, wozu ein Image (*.uf2/*.bin) im cwd liegt
 ./pico-switch-fw-update.sh -p         # nur Pico (*.uf2 aus aktuellem Verzeichnis)
-./pico-switch-fw-update.sh -e         # nur ESP32 (*.bin aus aktuellem Verzeichnis)
+./pico-switch-fw-update.sh -e         # nur ESP32 (firmware.bin aus aktuellem Verzeichnis)
+./pico-switch-fw-update.sh -r         # wie Auto, ESP32 aber mit firmware-rot180.bin (Anzeige 180° gedreht)
+./pico-switch-fw-update.sh -e -r      # nur ESP32, gedrehte Variante
 ./pico-switch-fw-update.sh -i fw.uf2  # Image explizit (Endung wählt Ziel)
 ./pico-switch-fw-update.sh --esp32-image app.bin --port /dev/ttyUSB0
 ./pico-switch-fw-update.sh -w         # Werksreset: Pico-Persistenz loeschen (kein Image noetig)
 ./pico-switch-fw-update.sh -w -p      # erst Persistenz loeschen, dann Pico flashen
 ```
 
-- **Images** liegen im aktuellen Verzeichnis (`*.uf2` = Pico, `*.bin` = ESP32)
-  oder werden per `-i` / `--pico-image` / `--esp32-image` angegeben.
+- **Images** liegen im **aktuellen Arbeitsverzeichnis** (`*.uf2` = Pico; ESP32:
+  `firmware.bin`, mit `-r`/`--rotate` `firmware-rot180.bin`, sonst das einzige `*.bin`)
+  oder werden per `-i` / `--pico-image` / `--esp32-image` angegeben. `-r` und ein
+  explizites ESP32-Image schließen sich aus. Die Images werden von Hand nach
+  `fw_update/` kopiert (Build-Ergebnisse: `pico/switch_server/build/switch_w6300_relay.uf2`,
+  `esp32/.pio/build/cyd/firmware.bin` bzw. `.../cyd-rot180/firmware.bin` → `firmware-rot180.bin`).
 - **`-w` / `--wipe-persist`** macht einen **Werksreset** der Pico-Persistenz
   (Namen, Szenen, Netzwerk, Benutzer/Passwoerter): Das Skript löscht die
   Persistenz-Slots direkt per `picotool erase` (keine spezielle Firmware/kein
