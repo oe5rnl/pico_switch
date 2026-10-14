@@ -617,6 +617,19 @@ struct FlashWriteCtx {
   bool wrote;
 };
 
+// true, wenn jeder beschreibbare Persistenz-Slot bereits genau diesen Sektor enthaelt.
+// Dann ist Speichern ueberfluessig (z. B. Tipp auf einen bereits aktiven Button) und
+// Erase/Program werden uebersprungen -> schont den Flash.
+static bool persist_slots_up_to_date(const uint8_t *sector, const std::array<uintptr_t, 4> &offsets) {
+  bool any = false;
+  for (uintptr_t offset : offsets) {
+    if (!persist_flash_offset_usable(offset)) continue;
+    any = true;
+    if (std::memcmp(reinterpret_cast<const void *>(XIP_BASE + offset), sector, FLASH_SECTOR_SIZE) != 0) return false;
+  }
+  return any;
+}
+
 static void flash_write_cb(void *param) {
   FlashWriteCtx *ctx = static_cast<FlashWriteCtx *>(param);
   for (size_t i = 0; i < ctx->count; ++i) {
@@ -704,6 +717,7 @@ static void save_config() {
   }  // g_state_mtx hier freigeben: Flash-Schreiben laeuft OHNE Lock
 
   std::array<uintptr_t, 4> offsets = persist_flash_offsets();
+  if (persist_slots_up_to_date(sector.data(), offsets)) return;  // unveraendert: nichts schreiben
   FlashWriteCtx ctx{sector.data(), offsets.data(), offsets.size(), false};
   // Flash-Erase/Program macht den Flash fuer BEIDE Kerne unzugaenglich. Sobald
   // core1 laeuft, laufen wir hier auf core1 und sperren core0 per

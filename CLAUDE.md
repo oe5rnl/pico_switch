@@ -88,6 +88,8 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
   Bytes (Umlaut = 2 Bytes) und werden per `utf8_truncate()` zeichengrenzen-sicher gekürzt.
   Alt-Datensätze mit HTML-Entities (`&Uuml;` …) wandeln `load_config()` beim Laden und der
   JSON-Import (`/config_load`, z. B. alte Exportdateien) in UTF-8.
+- `save_config()` überspringt Erase/Program, wenn alle Slots bereits den identischen Sektor
+  enthalten (`persist_slots_up_to_date`) — schont den Flash bei Tipps ohne Zustandsänderung.
 - CMake-Check `check_persist_overlap.cmake` stellt sicher, dass der Flash-Slot
   nicht mit dem Binär-Image kollidiert.
 
