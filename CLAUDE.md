@@ -21,6 +21,7 @@ pico_switch/
 │   ├── platformio.ini            # Envs: cyd, cyd2usb, loopback
 │   ├── lv_conf.h                 # LVGL-Konfiguration (nur montserrat 14/24/48)
 │   ├── upload.sh                 # Baut + flasht ESP32-Firmware (PlatformIO)
+│   ├── fonts/gen_fonts.sh        # Erzeugt src/fonts/lv_font_de_*.c (Umlaut-Fonts)
 │   └── src/
 │       ├── main.cpp              # Produktiv-Firmware (LVGL-UI + Pico-Link)
 │       └── serial_loopback_test.cpp  # UART-Loopback-Diagnose (env loopback)
@@ -83,6 +84,9 @@ Authentifizierung, SSE-Live-Updates und den ESP-Link.
   (Name, aktiv-Flag, je **Button** Aktion aus/ein/unverändert), gemeinsame
   Rückmeldezeit und Taster-Entprellzeit. Der Eingang-GPIO wird nicht gespeichert,
   sondern aus der Ausgangs-GPIO abgeleitet (`input_for_output()`).
+- Texte (Titel, Namen, Szenen) werden als **UTF-8** gespeichert; Längengrenzen gelten in
+  Bytes (Umlaut = 2 Bytes) und werden per `utf8_truncate()` zeichengrenzen-sicher gekürzt.
+  Alt-Datensätze mit HTML-Entities (`&Uuml;` …) wandelt `load_config()` beim Laden in UTF-8.
 - CMake-Check `check_persist_overlap.cmake` stellt sicher, dass der Flash-Slot
   nicht mit dem Binär-Image kollidiert.
 
@@ -278,6 +282,11 @@ Zentrale Abstraktion (kein Compileschalter mehr):
   `2-fach` (2 Ausgänge) oder `4-fach` (4 Ausgänge). `2-fach`/`4-fach` sind gegenseitig
   ausschließend — „immer genau ein Ausgang aktiv". Je Relais optional **Impuls** (nur der gewählte Ausgang wird
   gepulst/gesetzt, die Anzeige `active_output` bleibt gelatcht) und Ausgangspolarität.
+  **2-/4-fach mit Impuls = bistabile Relais:** kein „Aus“ — Aus/Toggle auf den aktiven
+  Ausgang wird ignoriert (kein Impuls, Latch + Rückmeldeerwartung bleiben EIN); umgeschaltet
+  wird nur über einen anderen Button. Statische 2-/4-fach-Relais lassen sich über den
+  aktiven Button ausschalten (dann ist kein Ausgang aktiv). Das ESP-Display schaltet die
+  Anzeige nicht vorab um, sondern übernimmt den Zustand aus `STATEn:`.
 - **Ausgangs-GPIO** pro Ausgang frei aus `OUTPUT_PINS` wählbar; der **Eingang-GPIO**
   ergibt sich fest daraus (`input_for_output()`: `OUTPUT_PINS[i]`↔`INPUT_PINS[i]`).
   `resolve_gpios()` validiert (kein Ausgangs-Pin doppelt) und leitet `in_gpio` ab.
@@ -349,7 +358,10 @@ Lokales Touch-Terminal (Board ESP32-2432S028, „CYD"), LVGL 8 + TFT_eSPI + XPT2
   `SCENEn:<name>`. Tastendruck sendet `SWn:TOGGLE` bzw. `SCENEn:GO`.
   Die Modusanzeige unten rechts ist antippbar und sendet `MODE:TOGGLE`, um zwischen
   Button- und Szenen-Modus umzuschalten.
-- Nur die LVGL-Fonts montserrat 14/24/48 sind in `lv_conf.h` aktiviert.
+- **Umlaute**: Die eingebauten `lv_font_montserrat_*` enthalten nur ASCII. Für Titel (24 px)
+  und Button-/Szenennamen (18 px) werden daher eigene Fonts `lv_font_de_18/24`
+  (Montserrat, ASCII + Latin-1 inkl. ÄÖÜäöüß, €) aus `src/fonts/` genutzt. Neu erzeugen mit
+  `esp32/fonts/gen_fonts.sh` (npx `lv_font_conv`). Texte mit Umlauten nur in diesen Fonts darstellen.
 
 ---
 

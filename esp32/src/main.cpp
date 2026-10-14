@@ -12,6 +12,11 @@
 #include <TFT_eSPI.h>
 #include <XPT2046_Touchscreen.h>
 
+/* Fonts mit Umlauten (Latin-1), erzeugt per fonts/gen_fonts.sh - die eingebauten
+   lv_font_montserrat_* enthalten nur ASCII. */
+LV_FONT_DECLARE(lv_font_de_18);
+LV_FONT_DECLARE(lv_font_de_24);
+
 // ----------------------------
 // Touch screen pins (CYD)
 // ----------------------------
@@ -562,8 +567,8 @@ static void switch_event_cb(lv_event_t * e)
         return;
     }
 
-    switch_state[idx] = !switch_state[idx];
-    update_switch_visual(idx);
+    /* Keine lokale Vorab-Umschaltung: der Pico entscheidet (z. B. bleibt bei bistabilen
+       2-/4-fach-Impuls-Relais der aktive Ausgang EIN) und meldet sofort STATEn: zurueck. */
     PICO_UART.printf("SW%d:TOGGLE\n", idx + 1);
 }
 
@@ -576,7 +581,7 @@ static void create_ui(void)
     /* Titel */
     lv_obj_t * title = lv_label_create(scr);
     lv_label_set_text(title, "wait for init");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(title, &lv_font_de_24, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0x60d0ff), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 2);
     title_label = title;
@@ -636,7 +641,7 @@ static void create_ui(void)
         lv_obj_t * lbl = lv_label_create(btn);
         lv_obj_set_width(lbl, btn_w - 8);
         lv_label_set_long_mode(lbl, LV_LABEL_LONG_WRAP);
-        lv_obj_set_style_text_font(lbl, &lv_font_montserrat_18, 0);
+        lv_obj_set_style_text_font(lbl, &lv_font_de_18, 0);
         lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_center(lbl);
 
@@ -663,7 +668,7 @@ static void create_ui(void)
        bis der Pico die Schalter-/Szenendaten sendet. */
     lv_obj_t * sp = lv_label_create(scr);
     lv_label_set_text(sp, "pico_switch");
-    lv_obj_set_style_text_font(sp, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(sp, &lv_font_de_24, 0);
     lv_obj_set_style_text_color(sp, lv_color_hex(0xe0e0e0), 0);
     lv_obj_align(sp, LV_ALIGN_CENTER, 0, -10);
     splash_label = sp;
